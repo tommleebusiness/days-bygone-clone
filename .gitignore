@@ -1,17 +1,25 @@
-
 # Android build artifacts
-# Local tools
-# Node / tooling
-# OS
-*.log
-.DS_Store
-.gradle/
-_patch_*.py
-_tmp_*.jspixelfx/
-android/*.keystore
-android/.gradle/
-android/app/build/
 android/build/
+android/app/build/
+android/.gradle/
 android/local.properties
+android/*.keystore
+
+# Node / tooling
 node_modules/
+.gradle/
+*.log
+
+# OS
 Thumbs.db
+.DS_Store
+
+# Local helper scripts
+_patch_*.py
+_tmp_*.js
+
+# pixelfx — внешняя библиотека (github.com/patch-gg/pixelfx).
+# Игра использует вендорную копию: days-bygone-clone/game/vendor/pixelfx/
+pixelfx/
+# assets генерируются gradle-задачей copyGameAssets при сборке
+android/app/src/main/assets/game/

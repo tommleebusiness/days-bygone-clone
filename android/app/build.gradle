@@ -14,8 +14,19 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            // ключ лежит рядом с проектом (в git не попадает)
+            storeFile file("../daysbygone.keystore")
+            storePassword "daysbygone2026"
+            keyAlias "daysbygone"
+            keyPassword "daysbygone2026"
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
@@ -29,19 +40,19 @@ android {
 dependencies {
     implementation 'androidx.webkit:webkit:1.11.0'
 }
-android {
-    signingConfigs {
-        release {
-            storeFile file("../daysbygone.keystore")
-            storePassword "daysbygone2026"
-            keyAlias "daysbygone"
-            keyPassword "daysbygone2026"
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
-        }
-    }
+
+// Копируем игру в assets перед сборкой — единый источник правды (days-bygone-clone/game)
+def gameSrc = file("../../days-bygone-clone/game")
+def assetsDir = file("src/main/assets/game")
+
+tasks.register('copyGameAssets', Copy) {
+    from gameSrc
+    into assetsDir
 }
+
+tasks.register('cleanGameAssets', Delete) {
+    delete assetsDir
+}
+
+preBuild.dependsOn copyGameAssets
+clean.dependsOn cleanGameAssets
