@@ -1,0 +1,17 @@
+
+# Android build artifacts
+# Local tools
+# Node / tooling
+# OS
+*.log
+.DS_Store
+.gradle/
+_patch_*.py
+_tmp_*.jspixelfx/
+android/*.keystore
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+node_modules/
+Thumbs.db
