@@ -5,7 +5,7 @@
 
 import { createFrame, clearFrame, createFx, composite, Painter } from "./vendor/pixelfx/core/index.js?v=2";
 import * as weather from "./weather.js?v=4";
-import * as fireballFx from "./vendor/pixelfx/fx/fire/fireball.js?v=2";
+import * as boomFx from "./fx/small-boom.js?v=1";
 import * as coinDropFx from "./vendor/pixelfx/fx/spawn/coin-drop.js?v=2";
 import * as hitFlashFx from "./fx/small-hit.js?v=1";
 import * as floatTextFx from "./fx/float-text.js?v=1";
@@ -16,7 +16,7 @@ import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, b
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=9";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles, structCost, structCd }
-  from "./structures.js?v=5";
+  from "./structures.js?v=8";
 import { rollItem, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
   SLOT_ORDER, SLOT_NAMES }
   from "./loot.js?v=3";
@@ -214,8 +214,9 @@ function shortNum(n) {
 }
 // эффекты для сооружений: 'boom' | 'fire' | 'hit'
 function ctxSpawn(kind, x, y) {
-  if (kind === 'fire' || kind === 'boom') spawnFx(fireballFx, { x, y });
-  else spawnFx(hitFlashFx, { x, y });
+  if (kind === 'boom') spawnFx(boomFx, { x, y: y - 2, seed: (Math.random() * 999) | 0 });
+  else if (kind === 'fire') spawnFx(boomFx, { x, y, seed: (Math.random() * 999) | 0 });
+  else spawnFx(hitFlashFx, { x, y, seed: (Math.random() * 100) | 0 });
 }
 
 // ---------- Враги ----------
@@ -593,7 +594,7 @@ function buildInventoryUI() {
         </div>
       </div>
     </div></div>`;
-  document.getElementById('invClose').addEventListener('click', () => modal.style.display = 'none');
+  bindTap(document.getElementById('invClose'), () => modal.style.display = 'none');
   document.querySelectorAll('.d2slot').forEach(el => {
     el.addEventListener('pointerdown', () => unequipSlot(el.dataset.slot));
     el.addEventListener('pointerenter', () => {
@@ -815,7 +816,7 @@ function buildTree() {
   modal.innerHTML = `<h2>🌳 НАВЫКИ <span id="treePts"></span></h2><div id="treeCols"></div>
     <p style="font-size:11px;color:#9a8763">+1 очко за каждый пережитый день. Узлы открываются по цепочке.</p>
     <button class="btn" id="treeClose">ЗАКРЫТЬ</button>`;
-  document.getElementById('treeClose').addEventListener('click', () => modal.style.display = 'none');
+  bindTap(document.getElementById('treeClose'), () => modal.style.display = 'none');
   const cols = document.getElementById('treeCols');
   for (const branch of TREE) {
     const col = document.createElement('div');
@@ -1095,24 +1096,46 @@ function render(dt) {
 }
 
 // ---------- Запуск ----------
-document.getElementById('startBtn').addEventListener('click', () => {
-  document.getElementById('startScreen').style.display = 'none';
+function beginSiege() {
+  if (state.running) return;
+  const ss = document.getElementById('startScreen');
+  if (ss) ss.style.display = 'none';
   state.running = true;
   buildShop(); updateHud();
   toast('Волна приближается с востока!');
-});
+}
+const startBtnEl = document.getElementById('startBtn');
+// pointerdown срабатывает и на тач-экранах Android, и мышью
+startBtnEl.addEventListener('pointerdown', (e) => { e.preventDefault(); beginSiege(); });
+startBtnEl.addEventListener('click', beginSiege);
 document.getElementById('eraBtn').addEventListener('click', newEra);
 document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
-document.getElementById('treeBtn').addEventListener('click', () => {
+function openTree() {
   renderTree();
   document.getElementById('treeModal').style.display = 'flex';
-});
-document.getElementById('invBtn').addEventListener('click', () => {
+}
+function openInv() {
   renderInventory();
   document.getElementById('invModal').style.display = 'flex';
   setTimeout(fitInvPanel, 0);
   setTimeout(fitInvPanel, 120);
-});
+}
+// надёжная привязка кнопок HUD: pointerdown (тач) + click (мышь), без двойного срабатывания
+function bindTap(el, fn) {
+  if (!el) return;
+  let fired = 0;
+  const go = (e) => {
+    const now = performance.now();
+    if (now - fired < 350) return;      // гасим дубль pointerdown→click
+    fired = now;
+    if (e.cancelable) e.preventDefault();
+    fn();
+  };
+  el.addEventListener('pointerdown', go);
+  el.addEventListener('click', go);
+}
+bindTap(document.getElementById('treeBtn'), openTree);
+bindTap(document.getElementById('invBtn'), openInv);
 // счётчик очков навыков в HUD
 function updateSkillBadge() {
   const el = document.getElementById('skillPts');

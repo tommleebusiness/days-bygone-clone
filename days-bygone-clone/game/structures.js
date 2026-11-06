@@ -13,7 +13,7 @@ const COL = {
 
 export const STRUCT_DEFS = [
   {
-    key: 'catapult', name: 'Катапульта', x: 196, y: null,
+    key: 'catapult', name: 'Катапульта', x: 188, y: null,
     desc: 'Валун по площади врагов',
     baseCost: 350, costGrowth: 2.3,
     cd: () => Math.max(2.5, 7 - 0.55 * 0), // задаётся уровнем в cdFor
@@ -21,7 +21,7 @@ export const STRUCT_DEFS = [
     radius: 24,
   },
   {
-    key: 'ballista', name: 'Баллиста', x: 300, y: null,
+    key: 'ballista', name: 'Баллиста', x: 268, y: null,
     desc: 'Пробивной болт навылет',
     baseCost: 500, costGrowth: 2.4,
     dmg: (lvl) => 70 * Math.pow(1.75, lvl - 1),
@@ -33,32 +33,32 @@ export const STRUCT_DEFS = [
     dmg: (lvl) => 12 * Math.pow(1.6, lvl - 1), // урон/сек горения
   },
   {
-    key: 'tower', name: 'Башня лучников', x: 164,
+    key: 'tower', name: 'Башня лучников', x: 142,
     desc: 'Собственный лучник бьёт точно',
     baseCost: 650, costGrowth: 2.5,
     dmg: (lvl) => 30 * Math.pow(1.7, lvl - 1),
   },
   {
-    key: 'mage', name: 'Башня мага', x: 236,
+    key: 'mage', name: 'Башня мага', x: 226,
     desc: 'Огненный шар взрывается по площади',
     baseCost: 800, costGrowth: 2.5,
     dmg: (lvl) => 55 * Math.pow(1.75, lvl - 1),
     radius: 18,
   },
   {
-    key: 'spikes', name: 'Шипы у стены', x: 316,
+    key: 'spikes', name: 'Шипы у стены', x: 330,
     desc: 'Ранит врагов, подошедших вплотную',
     baseCost: 300, costGrowth: 2.2,
     dmg: (lvl) => 25 * Math.pow(1.6, lvl - 1),
   },
   {
-    key: 'crossbow', name: 'Арбалетная башня', x: 372,
+    key: 'crossbow', name: 'Арбалетная башня', x: 308,
     desc: 'Скорострельный залп арбалета',
     baseCost: 900, costGrowth: 2.5,
     dmg: (lvl) => 45 * Math.pow(1.68, lvl - 1),
   },
   {
-    key: 'healer', name: 'Лагерь лекаря', x: 46,
+    key: 'healer', name: 'Лагерь лекаря', x: 48,
     desc: 'Постоянно чинит стены замка',
     baseCost: 700, costGrowth: 2.6,
     heal: (lvl) => 10 * Math.pow(1.5, lvl - 1),
@@ -248,31 +248,115 @@ function rect(p, x, y, w, h, col) {
 const G = 296, G2 = 236;
 
 function rampart(p, t) {
-  // Каменный рампорт: связывает замок (x=92) с башнями до x=400
-  rect(p, 92, G2, 308, G - G2, hex('#7a7466'));
-  // кладка
+  // КОРОТКИЙ рампорт: от замка (x=92) до x=344. Псевдо-3D:
+  //  - верхняя грань (яркая, «плита»),
+  //  - передняя стенка (кладка),
+  //  - тёмная боковая грань справа (глубина).
+  const X1 = 92, X2 = 344;
+
+  // передняя стенка
+  rect(p, X1, G2 + 2, X2 - X1, G - G2 - 2, hex('#6e6758'));
+  // кладка: ряды по 12 с вертикальными швами
   for (let row = 0; row * 12 < G - G2; row++) {
     const yy = G2 + 6 + row * 12;
-    for (let x = 92; x < 400; x++) p.put(x, yy, hex('#5a5448'));
-    for (let x = 92 + ((row % 2) ? 0 : 11); x < 400; x += 22)
-      for (let y = yy + 1; y < yy + 12 && y < G; y++) p.put(x, y, hex('#5a5448'));
+    for (let x = X1; x < X2; x++) p.put(x, yy, hex('#544d40'));
+    for (let x = X1 + ((row % 2) ? 0 : 11); x < X2; x += 22)
+      for (let y = yy + 1; y < yy + 12 && y < G; y++) p.put(x, y, hex('#544d40'));
+    // лёгкий блик на верхней кромке каждого ряда
+    for (let x = X1; x < X2; x += 4) p.put(x, yy - 1, hex('#7d7666'), 0.5);
   }
-  // верхняя кромка + зубцы
-  for (let x = 92; x < 400; x++) p.put(x, G2 + 1, hex('#a8a294'));
-  for (let x = 96; x < 396; x += 18) {
-    rect(p, x, G2 - 8, 9, 9, hex('#7a7466'));
-    for (let i = 0; i < 9; i++) p.put(x + i, G2 - 8, hex('#b5afa1'));
-    p.put(x, G2 - 1, hex('#4d4738'));
+
+  // ВЕРХНЯЯ ГРАНЬ («плита»): светлая полоса + фаска
+  for (let x = X1; x < X2; x++) {
+    p.put(x, G2 - 1, hex('#bdb7a8'));
+    p.put(x, G2,     hex('#a29c8e'));
+    p.put(x, G2 + 1, hex('#7a7466'));
   }
-  // подтёки и трещины
-  p.line(150, G2 + 20, 154, G2 + 34, hex('#4d4738'));
-  p.line(260, G2 + 14, 256, G2 + 30, hex('#4d4738'));
-  p.line(340, G2 + 26, 345, G2 + 44, hex('#4d4738'));
-  p.dot(200, G2 + 10, hex('#8a8578'), 0.5);
-  p.dot(300, G2 + 40, hex('#8a8578'), 0.4);
+  // фаска на стыке верхней и передней грани — тёмная линия
+  for (let x = X1; x < X2; x++) p.put(x, G2 + 2, hex('#4a4438'));
+
+  // БОКОВАЯ ГРАНЬ справа: узкая тёмная полоса (глубина)
+  for (let y = G2 - 1; y < G; y++) {
+    p.put(X2 - 4, y, hex('#4f4a3e'));
+    p.put(X2 - 3, y, hex('#443f34'));
+    p.put(X2 - 2, y, hex('#3a352c'));
+  }
+
+  // зубцы: у каждого видна фронтальная и верхняя плоскость
+  for (let x = X1 + 3; x < X2 - 9; x += 17) {
+    const w = 8;
+    // фронт
+    rect(p, x, G2 - 7, w, 9, hex('#7a7466'));
+    for (let row = 0; row < 9; row += 4)
+      for (let i = 0; i < w; i++) p.put(x + i, G2 - 7 + row, hex('#5f594b'));
+    // верх (светлый)
+    for (let i = 0; i < w; i++) p.put(x + i, G2 - 8, hex('#c2bcad'));
+    // правый торец (тень)
+    for (let y = G2 - 8; y < G2 + 2; y++) p.put(x + w, y, hex('#413c31'));
+    // левый блик
+    for (let y = G2 - 6; y < G2 + 1; y++) p.put(x, y, hex('#96907f'));
+  }
+
+  // подтёки и трещины на передней стенке
+  p.line(130, G2 + 16, 134, G2 + 30, hex('#4d4738'));
+  p.line(132, G2 + 30, 130, G2 + 42, hex('#4d4738'));
+  p.line(205, G2 + 12, 202, G2 + 26, hex('#4d4738'));
+  p.line(290, G2 + 22, 294, G2 + 40, hex('#4d4738'));
+  p.dot(170, G2 + 8, hex('#9a9487'), 0.45);
+  p.dot(250, G2 + 36, hex('#9a9487'), 0.35);
+  // влажный мох у подножия
+  for (let x = X1 + 6; x < X2 - 6; x += 9) p.dot(x, G - 6 - ((x * 7) % 5), hex('#4a5a2a'), 0.5);
 }
 
 // Надстройки по уровню: высота, зубцы, флаги, золото
+
+// ---- хелперы псевдо-3D ----
+function shade(p, x, y, w) {
+  // мягкая тень на земле/плите
+  for (let i = 0; i < w; i++) {
+    const a = 0.30 + 0.10 * Math.sin((i / w) * Math.PI);
+    p.dot(x - Math.round(w / 2) + i, y, hex('#14100a'), a);
+  }
+}
+function beamH(p, x, y, w) {
+  // горизонтальная деревянная балка: верхний блик, середина, нижняя тень
+  for (let i = 0; i < w; i++) {
+    p.put(x + i, y, hex('#8a5a30'));
+    p.put(x + i, y + 1, (i % 3 === 0) ? hex('#6e4522') : hex('#7a4e28'));
+    p.put(x + i, y + 2, hex('#4a3018'));
+  }
+}
+function beamV(p, x, y, h) {
+  // вертикальная балка: левый блик, правый торец в тени
+  for (let i = 0; i < h; i++) {
+    p.put(x, y + i, hex('#8a5a30'));
+    p.put(x + 1, y + i, (i % 2) ? hex('#7a4e28') : hex('#6e4522'));
+    p.put(x + 2, y + i, hex('#4a3018'));
+  }
+}
+function stoneFace(p, x, y, w, h, base, dark, light) {
+  // каменный блок: фасад + светлая верхняя кромка + тёмный правый торец
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) p.put(x + i, y + j, base);
+  for (let i = 0; i < w; i++) p.put(x + i, y, light);
+  for (let j = 0; j < h; j++) p.put(x + w - 1, y + j, dark);
+  for (let i = 0; i < w; i += 6) for (let j = 3; j < h; j += 6) p.put(x + i, y + j, dark);
+}
+
+
+function platform(p, x, w, y = G2) {
+  // тёмная деревянная платформа: отделяет постройку от камня
+  for (let i = -Math.round(w / 2); i < Math.round(w / 2); i++) {
+    p.put(x + i, y + 1, hex('#2b2216'));
+    p.put(x + i, y + 2, hex('#1e1810'));
+  }
+  for (let i = -Math.round(w / 2); i < Math.round(w / 2); i += 5) {
+    p.put(x + i, y + 1, hex('#4a3a22'));
+  }
+  // опоры
+  p.put(x - Math.round(w / 2), y + 3, hex('#1e1810'));
+  p.put(x + Math.round(w / 2) - 1, y + 3, hex('#1e1810'));
+}
+
 function lvlStyle(lvl) {
   return {
     grow: Math.min(24, (lvl - 1) * 6),          // прирост высоты
@@ -301,7 +385,14 @@ export function drawStructures(p, structs, time) {
       // Башня лучников — растёт в высоту и ширину с уровнем
       const st = lvlStyle(s.lvl);
       const H = 64 + st.grow, W2 = 14 + st.widen;
-      rect(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#8a8578'));
+      shade(p, x, G2 + 2, W2 * 2 + 8);
+      platform(p, x, W2 * 2 + 10);
+      stoneFace(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#8a8578'), hex('#5a5448'), hex('#b5afa1'));
+      // верхняя площадка с фаской
+      for (let xx = x - W2 - 2; xx <= x + W2 + 1; xx++) {
+        p.put(xx, G2 - H - 2, hex('#a8a294'));
+        p.put(xx, G2 - H - 1, hex('#c2bcae'));
+      }
       for (let row = 0; row * 10 < H; row++) {
         const yy = G2 - H + 6 + row * 10;
         for (let xx = x - W2; xx < x + W2; xx++) p.put(xx, yy, hex('#615b4e'));
@@ -353,7 +444,13 @@ export function drawStructures(p, structs, time) {
       // Башня мага — выше и шире с уровнем, кристалл растёт
       const st = lvlStyle(s.lvl);
       const H = 56 + st.grow, W2 = 12 + st.widen;
-      rect(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#4a4438'));
+      shade(p, x, G2 + 2, W2 * 2 + 8);
+      platform(p, x, W2 * 2 + 10);
+      stoneFace(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#4a4438'), hex('#2b2820'), hex('#6a5f70'));
+      for (let xx = x - W2 - 2; xx <= x + W2 + 1; xx++) {
+        p.put(xx, G2 - H - 2, hex('#5a5448'));
+        p.put(xx, G2 - H - 1, hex('#6a5f70'));
+      }
       for (let row = 0; row * 10 < H; row++) {
         const yy = G2 - H + 6 + row * 10;
         for (let xx = x - W2; xx < x + W2; xx++) p.put(xx, yy, hex('#332f26'));
@@ -395,12 +492,17 @@ export function drawStructures(p, structs, time) {
       // Баллиста: станина и лук растут с уровнем
       const st = lvlStyle(s.lvl);
       const py = G2 - 26 - Math.round(st.grow * 0.5);
-      // станина
-      rect(p, x - 16 - st.widen, G2 - 4, 34 + st.widen * 2, 6, hex('#57401f'));
+      shade(p, x, G2 + 2, 40);
+      platform(p, x, 40);
+      // станина (деревянная балка с бликом)
+      beamH(p, x - 16 - st.widen, G2 - 5, 34 + st.widen * 2);
       if (st.trim) for (let i = -16 - st.widen; i < 18 + st.widen; i += 5) p.put(x + i, G2 - 4, hex('#c9a44f'));
-      p.line(x - 8, G2 + 2, x - 2, py + 8, hex('#57401f'));
-      p.line(x + 10, G2 + 2, x + 4, py + 8, hex('#57401f'));
-      rect(p, x - 3, py + 4, 8, 10, hex('#7a5a32'));
+      beamV(p, x - 9, py + 6, 16);
+      beamV(p, x + 7, py + 6, 16);
+      beamH(p, x - 6, py + 2, 14);
+      // ось с бликом
+      p.put(x - 3, py + 3, hex('#c8a06a'));
+      p.put(x + 4, py + 3, hex('#c8a06a'));
       // дуги лука — шире с уровнем и при спуске
       const snap = (kicking ? 3 : 0) + Math.min(6, (s.lvl - 1) * 2);
       p.line(x - 14 - snap, py - 10, x, py - 2, hex('#837c8c'));
@@ -429,7 +531,13 @@ export function drawStructures(p, structs, time) {
       // Арбалетная башня: растёт с уровнем, арбалет крупнее
       const st = lvlStyle(s.lvl);
       const H = 40 + st.grow, W2 = 11 + st.widen;
-      rect(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#8a8578'));
+      shade(p, x, G2 + 2, W2 * 2 + 8);
+      platform(p, x, W2 * 2 + 10);
+      stoneFace(p, x - W2, G2 - H, W2 * 2, H + 8, hex('#8a8578'), hex('#5a5448'), hex('#b5afa1'));
+      for (let xx = x - W2 - 2; xx <= x + W2 + 1; xx++) {
+        p.put(xx, G2 - H - 2, hex('#a8a294'));
+        p.put(xx, G2 - H - 1, hex('#c2bcae'));
+      }
       for (let row = 0; row * 9 < H; row++) {
         const yy = G2 - H + 5 + row * 9;
         for (let xx = x - W2; xx < x + W2; xx++) p.put(xx, yy, hex('#615b4e'));
@@ -465,8 +573,11 @@ export function drawStructures(p, structs, time) {
       const px0 = x - 8, py0 = G2 - 8;                       // ось
       // станина — шире и толще с уровнем
       const bw = 22 + st.widen * 2;
-      rect(p, x - bw, G2 - 10, bw * 2, 6, hex('#57401f'));
-      rect(p, x - bw, G2 - 4, bw * 2, 4, hex('#7a5a32'));
+      shade(p, x, G2 + 3, bw * 2 + 8);
+      platform(p, x, bw * 2 + 10);
+      // рама: две балки (верхняя светлее = объём)
+      beamH(p, x - bw, G2 - 11, bw * 2);
+      beamH(p, x - bw + 2, G2 - 7, bw * 2 - 4);
       if (st.trim) for (let i = -bw; i < bw; i += 6) p.put(x + i, G2 - 6, hex('#c9a44f'));
       p.line(x - 20, G2 + 2, x - 6, G2 + 2, hex('#3a2a14'));
       p.line(x + 6, G2 + 2, x + 20, G2 + 2, hex('#3a2a14'));
@@ -483,9 +594,27 @@ export function drawStructures(p, structs, time) {
       // ложка на конце
       rect(p, Math.round(tipX) - 4, Math.round(tipY) - 3, 9, 6, hex('#3a2a14'));
       if (!kicking) rect(p, Math.round(tipX) - 3, Math.round(tipY) - 5, 7, 5, hex('#6b6153')); // валун заряжен
-      // противовес
-      rect(p, x + 8, G2 - 14, 10, 8, hex('#4a4238'));
-      p.line(x - 4, G2 - 10, x + 8, G2 - 12, hex('#b0a070'));
+      else {
+        // пыль у основания + искры при взмахе рычага
+        const kk = anim / 0.42;
+        for (let i = 0; i < 5; i++) {
+          const dx = Math.round((i - 2) * 8 * (1 - kk));
+          p.dot(x + dx, G2 + 2, hex('#8a8072'), kk * 0.55);
+          p.dot(x + dx + 2, G2 + 3, hex('#6b6459'), kk * 0.38);
+        }
+        for (let i = 0; i < 3; i++) {
+          const a = time * 3 + i * 2.1;
+          p.dot(x + Math.round(Math.cos(a) * 12), G2 - 46, hex('#ffe08a'), kk * 0.85);
+        }
+        // дымок от ложки по траектории
+        p.dot(Math.round(tipX), Math.round(tipY) - 7, hex('#6b6459'), kk * 0.7);
+      }
+      // противовес — каменный блок с гранями
+      for (let j = 0; j < 9; j++) for (let i = 0; i < 11; i++) p.put(x + 8 + i, G2 - 15 + j, hex('#4a4238'));
+      for (let i = 0; i < 11; i++) p.put(x + 8 + i, G2 - 15, hex('#6b6153'));
+      for (let j = 0; j < 9; j++) p.put(x + 18, G2 - 15 + j, hex('#332f26'));
+      // тяга к рычагу
+      p.line(x - 4, G2 - 11, x + 8, G2 - 13, hex('#b0a070'));
       for (let i = 0; i < Math.min(5, s.lvl); i++) p.dot(x - 10 + i * 4, G2 + 3, hex('#ffc23d'));
 
     } else if (s.key === 'cauldron') {
@@ -493,11 +622,18 @@ export function drawStructures(p, structs, time) {
       const st = lvlStyle(s.lvl);
       const tip = kicking ? Math.round((1 - anim / 0.5) * 3) : 0;
       const cwid = 24 + st.widen * 2, chgt = 20 + Math.min(8, (s.lvl - 1) * 2);
+      shade(p, x + 6, G2 + 4, 30);
+      platform(p, x + 6, 34);
       p.line(x - 4, G2 - 2, x - 4, G2 + 8, hex('#5a5560'));
       p.line(x + cwid - 8, G2 - 2, x + cwid - 8, G2 + 8, hex('#5a5560'));
       rect(p, x - 6, G2 - 4 - chgt, cwid, chgt, hex('#26221e'));
+      // верхняя светлая кромка и тёмный правый торец = объём
+      for (let i = 0; i < cwid; i++) p.put(x - 6 + i, G2 - 4 - chgt, hex('#4a443c'));
+      for (let j = 0; j < chgt; j++) p.put(x + cwid - 7, G2 - 4 - chgt + j, hex('#141210'));
+      for (let i = 0; i < cwid; i += 4) for (let j = 4; j < chgt; j += 9) p.put(x - 6 + i, G2 - 4 - chgt + j, hex('#1a1713'));
       rect(p, x - 4, G2 - 6 - chgt, cwid - 4, 3, hex('#3d3830'));
       rect(p, x - 4, G2 - 4 - chgt, cwid - 4, 5, hex('#4a5a20'));
+      for (let i = 0; i < cwid - 4; i++) p.put(x - 4 + i, G2 - 1 - chgt, hex('#7a8a40'));
       if (st.trim) {
         for (let i = -4; i < cwid - 6; i += 6) { p.put(x + i, G2 - 8 - chgt, hex('#c9a44f')); p.put(x + i, G2 - 4, hex('#c9a44f')); }
       }
@@ -522,6 +658,8 @@ export function drawStructures(p, structs, time) {
       for (let i = 0; i < nSp; i++) {
         const sx = x - 14 + i * 4;
         rect(p, sx, G - 4 - up, 2, 4 + up, hex('#837c8c'));
+        p.put(sx, G - 4 - up, hex('#a8a8b4'));      // грань-блик
+        p.put(sx + 1, G - 4, hex('#5a5560'));       // основание в тени
         p.put(sx, G - 5 - up, hex('#e8e8f0'));
         if (kicking) p.put(sx, G - 3 - up, hex('#c94f3d'));
       }
@@ -533,8 +671,15 @@ export function drawStructures(p, structs, time) {
       const st = lvlStyle(s.lvl);
       const fl = Math.sin(time * 2.2) > 0 ? 1 : 0;
       const tw2 = 14 + st.widen, th2 = 26 + Math.min(12, (s.lvl - 1) * 3);
+      shade(p, x, G + 1, tw2 * 2 + 6);
+      platform(p, x, tw2 * 2 + 8, G - 1);
       rect(p, x - tw2, G - th2, tw2 * 2, th2, hex('#b0a070'));
+      for (let i = 0; i < tw2 * 2; i++) p.put(x - tw2 + i, G - th2, hex('#c9b991'));
+      for (let j = 0; j < th2; j++) p.put(x + tw2 - 1, G - th2 + j, hex('#8a7c52'));
+      // стойки каркаса
+      for (let i = 0; i < tw2 * 2; i += 8) p.put(x - tw2 + i, G - th2 + 2, hex('#8a7c52'));
       rect(p, x - tw2 + 4, G - th2 - 6, tw2 * 2 - 8, 7, hex('#b0a070'));
+      for (let i = 0; i < tw2 * 2 - 8; i++) p.put(x - tw2 + 4 + i, G - th2 - 6, hex('#d6c9a0'));
       if (st.trim) for (let i = -tw2; i < tw2; i += 6) p.put(x + i, G - th2, hex('#c94f3d'));
       rect(p, x - 2, G - 36, 3, 5, hex('#3a2a14'));
       rect(p, x - 14, G - 3, 28, 3, hex('#3a2a14'));
