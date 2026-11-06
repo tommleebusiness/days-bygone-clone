@@ -128,11 +128,18 @@
   .bagItem b { cursor:pointer; white-space:nowrap; font-size:10px; }
   .bagItem .eq { color:#7fc97f; } .bagItem .sell { color:#f4c542; }
   /* --- инвентарь в стиле Diablo 2 --- */
-  .d2wrap { display:flex; gap:14px; align-items:stretch; flex-wrap:wrap; justify-content:center; width:100%; }
-  .d2left { position:relative; width:232px; max-width:97vw; height:330px; background:radial-gradient(circle at 50% 40%, #2a1c0e, #1a1108);
-    border:2px solid #8a6a35; border-radius:8px; box-shadow:inset 0 0 24px rgba(0,0,0,.7); }
-  #heroDoll { display:block; margin:6px auto 0; image-rendering:pixelated; }
-  .d2slot { position:absolute; width:48px; height:48px; background:rgba(10,7,3,.6);
+  .d2wrap { display:flex; gap:12px; align-items:stretch; justify-content:center; width:100%; min-height:0; }
+  .d2col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .d2caption { text-align:center; color:#c9a44f; font-size:10px; letter-spacing:1px; margin-bottom:5px; }
+  .d2left { flex:0 0 auto; background:radial-gradient(circle at 50% 40%, #2a1c0e, #1a1108);
+    border:2px solid #6b5433; border-radius:4px; padding:8px 8px 6px; }
+  .d2body { display:flex; gap:8px; align-items:center; justify-content:center; }
+  .d2slots { display:flex; flex-direction:column; gap:6px; }
+  .d2doll { flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
+  #heroDoll { display:block; width:112px; height:180px; image-rendering:pixelated; }
+  .d2right { flex:1 1 auto; display:flex; flex-direction:column; min-width:0; }
+  .d2slot { position:relative; width:clamp(38px, 11vw, 48px); height:clamp(38px, 11vw, 48px);
+    flex:0 0 auto; background:rgba(10,7,3,.6);
     border:2px solid #6b5433; border-radius:4px; cursor:pointer; display:flex;
     align-items:center; justify-content:center; transition:border-color .1s, box-shadow .1s; }
   .d2slot:hover { border-color:#c9a44f; }
@@ -142,15 +149,15 @@
   .d2slot.r3 { border-color:#4a7ad0; box-shadow:0 0 10px rgba(80,150,240,.4); }
   .d2slot.r4 { border-color:#a05ad0; box-shadow:0 0 12px rgba(170,90,235,.5); }
   .d2slot.r5 { border-color:#e07020; box-shadow:0 0 14px rgba(244,167,66,.6); }
-  .d2slot canvas { width:34px; height:34px; image-rendering:pixelated; }
+  .d2slot canvas { width:100%; height:100%; image-rendering:pixelated; }
   .d2slot.sel { border-color:#f4c542; box-shadow:0 0 14px rgba(244,197,66,.6); }
-  .d2slot .slabel { position:absolute; bottom:-13px; left:50%; transform:translateX(-50%);
+  .d2slot .slabel { position:absolute; bottom:-11px; left:50%; transform:translateX(-50%);
     font-size:10px; color:#e8d5a3; letter-spacing:0.5px; white-space:nowrap;
     text-shadow:1px 1px 0 #000, 0 0 4px #000; background:rgba(10,6,2,.7); padding:0 3px;
     border-radius:2px; }
   .d2right { display:flex; flex-direction:column; width:404px; max-width:100%; min-width:0; }
   .d2title { color:#9a8763; font-size:10px; letter-spacing:2px; text-align:center; margin-bottom:5px; }
-  #invGrid { display:grid; grid-template-columns:repeat(10, minmax(0,38px)); grid-auto-rows:minmax(0,38px); gap:3px;
+  #invGrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(34px,1fr)); grid-auto-rows:minmax(34px, auto); gap:3px;
     background:#160e06; border:2px solid #6b5433; border-radius:5px; padding:5px; }
   .cell { width:38px; height:38px; background:#1e150a; border:1px solid #2e2313; border-radius:2px;
     cursor:pointer; display:flex; align-items:center; justify-content:center; position:relative; }
@@ -209,19 +216,24 @@
   body.narrow .modal { padding:4px; overflow-y:auto; }
   body.narrow .modal { align-items:center; justify-content:flex-start; overflow-y:auto;
     -webkit-overflow-scrolling:touch; padding:6px; }
-  body.narrow .invPanel { width:100%; max-width:100%; padding:5px 6px; max-height:none;
-    margin:0 auto; }
-  body.narrow .d2wrap { flex-direction:column; align-items:center; gap:8px; width:100%; }
-  body.narrow .d2right { width:100%; max-width:100%; }
-  body.narrow .d2tip { min-height:70px; }
-  body.narrow .d2tip .tbtn { min-height:40px; font-size:12px; padding:7px 16px; }
-  body.narrow #invClose { min-height:42px; }
-  body.narrow #invModal #invClose { position:sticky; bottom:4px; z-index:20;
-    box-shadow:0 -6px 12px rgba(0,0,0,.6); }
-  body.narrow .d2foot .gold { font-size:11px; }
-  body.narrow .d2left { width:100%; max-width:min(100%, 320px); height:330px; transform:scale(.98); transform-origin:top center; margin-bottom:-8px; }
-  body.narrow #invGrid { width:100%; grid-template-columns:repeat(6, minmax(0,1fr)); }
-  body.narrow .cell { min-height:38px; }
+  body.narrow .invPanel { width:100%; max-width:100%; padding:5px 6px; max-height:100%;
+    margin:0 auto; gap:4px; }
+  body.narrow .invPanel h2 { font-size:12px; margin-bottom:2px; }
+  body.narrow .d2wrap { gap:6px; }
+  body.narrow .d2caption { font-size:9px; margin-bottom:3px; }
+  body.narrow .d2left { padding:5px; }
+  body.narrow .d2body { gap:5px; }
+  body.narrow .d2slots { gap:4px; }
+  body.narrow #heroDoll { width:76px; height:122px; }
+  body.narrow .d2slot .slabel { font-size:7px; bottom:-9px; }
+  body.narrow .d2right { min-width:0; }
+  body.narrow #invGrid { gap:2px; }
+  body.narrow .d2tip { min-height:52px; padding:5px 6px; font-size:11px; }
+  body.narrow .d2tip .tstat { font-size:10px; }
+  body.narrow .d2tip .tbtn { min-height:32px; font-size:11px; padding:5px 12px; }
+  body.narrow #invClose { min-height:34px; font-size:12px; padding:6px 26px; margin-top:2px; }
+  body.narrow .d2foot { font-size:10px; gap:6px; }
+  body.narrow .d2foot .gold { font-size:10px; }
   body.narrow #treeCols { flex-direction:column; }
   body.narrow .treeCol { width:100%; max-width:420px; }
   body.narrow .cell { width:auto; height:auto; aspect-ratio:1; min-height:26px; }
@@ -367,6 +379,6 @@
   </div><!-- /stage -->
   <div id="shop"></div>
 </div>
-<script type="module" src="main.js?v=42"></script>
+<script type="module" src="main.js?v=44"></script>
 </body>
 </html>

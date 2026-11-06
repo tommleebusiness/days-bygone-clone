@@ -570,30 +570,38 @@ function buildInventoryUI() {
   modal.innerHTML = `<div class="invPanel">
     <h2>🎒 ЭКИПИРОВКА ГЕРОЯ</h2>
     <div class="d2wrap">
-      <div class="d2left">
-        <canvas id="heroDoll" width="150" height="240" style="position:absolute;left:41px;top:24px"></canvas>
-        <div class="d2slot" data-slot="helmet" style="left:6px; top:10px"><span class="slabel">ШЛЕМ</span></div>
-        <div class="d2slot" data-slot="shoulders" style="left:178px; top:10px"><span class="slabel">НАПЛЕЧНИКИ</span></div>
-        <div class="d2slot" data-slot="weapon" style="left:6px; top:74px"><span class="slabel">ОРУЖИЕ</span></div>
-        <div class="d2slot" data-slot="ring" style="left:178px; top:74px"><span class="slabel">КОЛЬЦО</span></div>
-        <div class="d2slot" data-slot="gloves" style="left:6px; top:138px"><span class="slabel">ПЕРЧАТКИ</span></div>
-        <div class="d2slot" data-slot="armor" style="left:178px; top:138px"><span class="slabel">БРОНЯ</span></div>
-        <div class="d2slot" data-slot="boots" style="left:6px; top:202px"><span class="slabel">САПОГИ</span></div>
-        <div class="d2slot" data-slot="kneepads" style="left:178px; top:202px"><span class="slabel">НАКОЛЕННИКИ</span></div>
-        <div class="d2slot" data-slot="belt" style="left:6px; top:266px"><span class="slabel">ПОЯС</span></div>
-        <div class="d2slot" data-slot="trinket" style="left:178px; top:266px"><span class="slabel">ТАЛИСМАН</span></div>
+      <div class="d2col d2left">
+        <div class="d2caption">НА ГЕРОЕ</div>
+        <div class="d2body">
+          <div class="d2slots d2slots-l">
+            <div class="d2slot" data-slot="helmet"><span class="slabel">ШЛЕМ</span></div>
+            <div class="d2slot" data-slot="weapon"><span class="slabel">ОРУЖИЕ</span></div>
+            <div class="d2slot" data-slot="gloves"><span class="slabel">ПЕРЧАТКИ</span></div>
+            <div class="d2slot" data-slot="boots"><span class="slabel">САПОГИ</span></div>
+            <div class="d2slot" data-slot="belt"><span class="slabel">ПОЯС</span></div>
+          </div>
+          <div class="d2doll"><canvas id="heroDoll" width="150" height="240"></canvas></div>
+          <div class="d2slots d2slots-r">
+            <div class="d2slot" data-slot="shoulders"><span class="slabel">НАПЛЕЧНИКИ</span></div>
+            <div class="d2slot" data-slot="ring"><span class="slabel">КОЛЬЦО</span></div>
+            <div class="d2slot" data-slot="armor"><span class="slabel">БРОНЯ</span></div>
+            <div class="d2slot" data-slot="kneepads"><span class="slabel">НАКОЛЕННИКИ</span></div>
+            <div class="d2slot" data-slot="trinket"><span class="slabel">ТАЛИСМАН</span></div>
+          </div>
+        </div>
       </div>
-      <div class="d2right">
-        <div class="d2title">— ИНВЕНТАРЬ —</div>
+      <div class="d2col d2right">
+        <div class="d2caption">ДОСТУПНАЯ ЭКИПИРОВКА</div>
         <div id="invGrid"></div>
-        <div class="d2tip" id="invTip">Наведи на предмет — увидишь описание.<br>Товары можно носить, менять и продавать.</div>
+        <div class="d2tip" id="invTip">Коснись предмета — увидишь описание.<br>Двойной тап надевает вещь.</div>
         <div class="d2foot">
           <span class="gold">🪙 <b id="invGold">0</b></span>
           <span class="gold" id="invSummary"></span>
-          <button class="btn" id="invClose" style="padding:6px 22px; font-size:13px">ЗАКРЫТЬ</button>
         </div>
       </div>
-    </div></div>`;
+    </div>
+    <button class="btn" id="invClose">ЗАКРЫТЬ</button>
+  </div>`;
   bindTap(document.getElementById('invClose'), () => modal.style.display = 'none');
   document.querySelectorAll('.d2slot').forEach(el => {
     el.addEventListener('pointerdown', () => unequipSlot(el.dataset.slot));
@@ -803,11 +811,11 @@ function showTip(it, equipped) {
            <button class="tbtn sell" id="tipSell">ПРОДАТЬ +${itemSellPrice(it)}🪙</button>`}
     </div>`;
   if (equipped) {
-    document.getElementById('tipUnequip').addEventListener('click', () => { unequipSlot(it.slot); selItem = null; });
+    bindTap(document.getElementById('tipUnequip'), () => { unequipSlot(it.slot); selItem = null; });
     return;
   }
-  document.getElementById('tipEquip').addEventListener('click', () => { equipItem(it); selItem = null; });
-  document.getElementById('tipSell').addEventListener('click', () => { sellItem(it); selItem = null; });
+  bindTap(document.getElementById('tipEquip'), () => { equipItem(it); selItem = null; });
+  bindTap(document.getElementById('tipSell'), () => { sellItem(it); selItem = null; });
 }
 
 // ---------- Дерево навыков ----------
