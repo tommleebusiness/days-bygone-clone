@@ -29,19 +29,24 @@
   .res b { color:#f4c542; }
   .day { color:#c94f3d; font-weight:bold; }
   /* --- панель улучшений --- */
-  #shop { position:relative; z-index:6; flex:0 1 auto; max-height:45vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  #shop { position:relative; z-index:6; flex:0 0 auto; overflow-x:auto; overflow-y:hidden;
+    -webkit-overflow-scrolling:touch; scrollbar-width:thin;
     background:linear-gradient(#241a10,#140e08); border-top:3px solid #6b5433;
-    display:flex; gap:8px; padding:8px; justify-content:center; flex-wrap:wrap; }
-  .up { background:#2e2313; border:2px solid #7a5c30; border-radius:3px; padding:6px 10px;
-    flex:1 1 128px; min-width:0; max-width:230px; cursor:pointer; text-align:center;
-    font-size:12px; line-height:1.4; transition:transform .06s; }
+    display:flex; gap:6px; padding:5px 8px; align-items:stretch; }
+  #shop::-webkit-scrollbar { height:6px; }
+  #shop::-webkit-scrollbar-track { background:#140e08; }
+  #shop::-webkit-scrollbar-thumb { background:#6b5433; border-radius:3px; }
+  .up { background:#2e2313; border:2px solid #7a5c30; border-radius:3px; padding:4px 6px;
+    flex:0 0 auto; width:96px; cursor:pointer; text-align:center;
+    font-size:11px; line-height:1.25; transition:transform .06s; }
+  .up .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .up:hover { transform:translateY(-2px); border-color:#c9a44f; }
   .up:active { transform:translateY(0); }
   .up.no { opacity:.45; cursor:default; border-color:#4a3a22; }
-  .up .t { color:#f4c542; font-weight:bold; }
-  .up .lvl { color:#9a8763; font-size:10px; }
+  .up .t { color:#f4c542; font-weight:bold; font-size:11px; }
+  .up .lvl { color:#9a8763; font-size:9px; }
   .up .cost { color:#7fc97f; }
-  .up .desc { color:#b0a184; font-size:10px; }
+  .up .desc { color:#b0a184; font-size:9px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   /* --- оверлеи --- */
   .overlay { position:fixed; inset:0; z-index:10; background:rgba(8,5,2,.88);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -193,8 +198,12 @@
   body.narrow #castleHpWrap .label, body.narrow #waveBarWrap .label { font-size:8px; }
   body.narrow #waveBarWrap { top:34px; right:4px; width:64px; }
   body.narrow #castleHp { height:6px; } body.narrow #waveBar { height:5px; }
-  body.narrow .up { flex:1 1 calc(50% - 8px); max-width:none; font-size:11px; padding:5px 6px; }
-  body.narrow .up .desc { font-size:9px; }
+  body.narrow #shop { flex:0 0 auto; overflow-x:auto; overflow-y:hidden; padding:3px 6px; gap:4px; }
+  body.narrow .up { flex:0 0 auto; width:78px; max-width:none; font-size:10px; padding:3px 4px;
+    line-height:1.2; }
+  body.narrow .up .t { font-size:10px; }
+  body.narrow .up .desc { font-size:8px; }
+  body.narrow .up .lvl, body.narrow .up .cost { font-size:9px; }
   body.narrow .overlay h1 { font-size:24px; }
   body.narrow .overlay p { font-size:12px; max-width:94%; }
   body.narrow .modal { padding:4px; overflow-y:auto; }
@@ -226,7 +235,10 @@
   body.short #waveBarWrap { top:28px; right:4px; width:60px; }
   body.short #castleHpWrap .label, body.short #waveBarWrap .label { font-size:7px; }
   body.short #castleHp { height:5px; } body.short #waveBar { height:4px; }
-  body.short .up { padding:2px 4px; font-size:10px; flex:1 1 30%; max-width:200px; }
+  body.short .up { padding:2px 4px; font-size:9px; flex:0 0 auto; width:74px; }
+  body.short .up .t { font-size:9px; }
+  body.short .up .desc { display:none; }
+  body.short #shop { padding:2px 5px; }
   body.short .up .desc { display:none; }
   body.short .overlay h1 { font-size:18px; } body.short .overlay p { font-size:11px; }
   body.short #toast { top:auto; bottom:auto; }
@@ -268,12 +280,11 @@
     #waveBarWrap .label { font-size:9px; }
     #waveBar { height:6px; }
     /* магазин: карточки в 2 колонки, крупные под палец, прокрутка по горизонтали */
-    #shop { padding:4px; gap:4px; max-height:42vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-    #stage { min-height:46vh; }
-    .up { min-width:calc(50vw - 12px); max-width:calc(50vw - 12px); padding:5px 6px;
-      font-size:11px; line-height:1.35; }
-    .up .t { font-size:11px; } .up .desc { font-size:9px; }
-    .up .lvl, .up .cost { font-size:10px; }
+    #shop { padding:3px 5px; gap:4px; }
+    #stage { min-height:58vh; }
+    .up { width:84px; padding:3px 5px; font-size:10px; line-height:1.2; }
+    .up .t { font-size:10px; } .up .desc { font-size:8px; }
+    .up .lvl, .up .cost { font-size:9px; }
     /* оверлеи */
     .overlay h1 { font-size:22px; letter-spacing:2px; }
     .overlay h2 { font-size:17px; }
@@ -356,6 +367,6 @@
   </div><!-- /stage -->
   <div id="shop"></div>
 </div>
-<script type="module" src="main.js?v=41"></script>
+<script type="module" src="main.js?v=42"></script>
 </body>
 </html>
