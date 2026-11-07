@@ -30,17 +30,45 @@ function rect(p, x, y, w, h, col) {
 
 // ---------- Небо ----------
 export function drawSky(p, w, h) {
+  // Многоступенчатый градиент: тёмно-фиолетовый верх → багровый → золотой горизонт
+  const stops = [
+    [0.00, hex('#1a1428')],
+    [0.18, hex('#2a1c38')],
+    [0.36, hex('#3d2340')],
+    [0.52, hex('#5a2f42')],
+    [0.66, hex('#7a3f42')],
+    [0.78, hex('#9c5440')],
+    [0.88, hex('#c0703c')],
+    [1.00, hex('#e0954a')],
+  ];
   for (let y = 0; y < h; y++) {
     const f = y / h;
-    const col = f < 0.22 ? COL.skyA : f < 0.52 ? COL.skyB : COL.skyC;
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (f >= stops[i][0] && f <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break; }
+    }
+    const span = (b[0] - a[0]) || 1;
+    const k = (f - a[0]) / span;
+    // ручная интерполяция ABGR по каналам
+    const ar = a[1] & 255, ag = (a[1] >> 8) & 255, ab = (a[1] >> 16) & 255;
+    const br = b[1] & 255, bg = (b[1] >> 8) & 255, bb = (b[1] >> 16) & 255;
+    const rr = Math.round(ar + (br - ar) * k);
+    const gg = Math.round(ag + (bg - ag) * k);
+    const bl = Math.round(ab + (bb - ab) * k);
+    const col = (255 << 24) | (bl << 16) | (gg << 8) | rr;
     for (let x = 0; x < w; x++) p.put(x, y, col);
   }
-  for (const fy of [0.22, 0.52]) {
-    const y0 = Math.round(fy * h);
-    for (let y = y0 - 6; y <= y0 + 6; y++) {
-      if (y < 0 || y >= h) continue;
-      for (let x = 0; x < w; x += 2) if (((x + y) & 3) === 0) p.put(x, y, y < y0 ? COL.skyB : COL.skyC);
-    }
+  // редкие звёзды в верхней трети (детерминированные)
+  for (let i = 0; i < 60; i++) {
+    const sx = (i * 137 + 41) % w;
+    const sy = (i * 53 + 17) % Math.round(h * 0.34);
+    const tw = ((i * 7) % 10) / 10;
+    p.put(sx, sy, hex('#cfc8e8'), 0.25 + tw * 0.5);
+  }
+  // блик у горизонта — тёплое свечение
+  for (let y = Math.round(h * 0.72); y < Math.round(h * 0.9); y++) {
+    const k = 1 - (y - h * 0.72) / (h * 0.18);
+    for (let x = 0; x < w; x += 3) p.put(x, y, hex('#ffcf8a'), 0.05 + k * 0.06);
   }
 }
 
@@ -53,11 +81,15 @@ export function drawSun(p, x, y, time = 0) {
            x + Math.round(Math.cos(a) * r2), y + Math.round(Math.sin(a) * r2),
            COL.sunGlow, 0.7 + pulse * 0.3);
   }
-  for (let dy = -36; dy <= 36; dy++) for (let dx = -36; dx <= 36; dx++) {
-    const d2 = dx * dx + dy * dy;
-    if (d2 <= 1296 && d2 > 196) {
-      const a = d2 > 800 ? 0.22 : d2 > 480 ? 0.45 : 0.8;
-      p.put(x + dx, y + dy, COL.sunGlow, a);
+  // гало: 3 чётких кольца с плавным затуханием (без шахматки)
+  const RINGS = [[196, 324, 0.55], [324, 576, 0.34], [576, 900, 0.18], [900, 1296, 0.09]];
+  for (const [r0, r1, a] of RINGS) {
+    const rr1 = Math.sqrt(r1);
+    for (let dy = -rr1; dy <= rr1; dy++) {
+      for (let dx = -rr1; dx <= rr1; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r0 && d2 <= r1) p.put(x + dx, y + dy, COL.sunGlow, a);
+      }
     }
   }
   for (let dy = -18; dy <= 18; dy++) for (let dx = -18; dx <= 18; dx++) {
@@ -69,114 +101,329 @@ export function drawSun(p, x, y, time = 0) {
 }
 
 export function drawClouds(p, w, t) {
-  const clouds = [[80, 42, 1.0], [336, 70, 0.8], [496, 30, 0.6], [560, 88, 0.9]];
+  const clouds = [[80, 44, 1.0], [336, 72, 0.8], [496, 32, 0.6], [560, 90, 0.9]];
   for (const [bx, by, s] of clouds) {
-    const cx = Math.round(((bx + t * 5) % (w + 140)) - 70);
-    for (let i = 0; i < 4; i++) {
-      rect(p, cx + i * 12 - 16, by + ((i % 2) ? 2 : 0), Math.round((22 + (i % 3) * 10) * s), Math.round((4 + (i % 2) * 4) * s), COL.skyB);
+    const cx = Math.round(((bx + t * 5) % (w + 160)) - 80);
+    // три «пузыря» разного размера — мягкий силуэт
+    const puffs = [[-18, 0, 20, 6], [4, -3, 26, 9], [26, 0, 18, 6], [-34, 2, 12, 4]];
+    for (const [ox, oy, pw, ph] of puffs) {
+      const ww = Math.round(pw * s), hh = Math.round(ph * s);
+      const x0 = cx + Math.round(ox * s), y0 = by + Math.round(oy * s);
+      for (let yy = 0; yy < hh; yy++) {
+        // скругление краёв: сужаем строки к верху и низу
+        const shrink = Math.round((1 - Math.sin(((yy + 1) / (hh + 1)) * Math.PI)) * ww * 0.35);
+        for (let xx = shrink; xx < ww - shrink; xx++) {
+          p.put(x0 + xx, y0 + yy, yy === 0 ? hex('#8a6480') : COL.skyB);
+        }
+      }
     }
-    // лёгкая подсветка сверху
-    for (let i = 0; i < 3; i++) p.put(cx - 8 + i * 12, by - 1, hex('#6d4f63'));
+    // тёплый подсвет снизу от заката
+    for (let i = 0; i < 3; i++) {
+      const ox = [-14, 6, 24][i];
+      for (let d = 0; d < 8; d++) p.put(cx + Math.round(ox * s) + d, by + Math.round(6 * s), hex('#c07080'), 0.35);
+    }
   }
 }
 
 // ---------- Горы и земля ----------
 export function drawGround(p, w, groundY) {
+  // ---- ДАЛЬНИЙ ХРЕБЕТ: острые пики с освещённой гранью ----
   for (let x = 0; x < w; x += 2) {
-    const mh = 44 + Math.round(30 * Math.sin(x * 0.019) + 16 * Math.sin(x * 0.051 + 2));
-    rect(p, x, groundY - mh - 60, 2, mh, COL.mount);
-  }
-  for (let x = 0; x < w; x += 2) {
-    const mh = 28 + Math.round(20 * Math.sin(x * 0.031 + 1.4) + 12 * Math.sin(x * 0.077 + 0.6));
-    rect(p, x, groundY - mh - 44, 2, mh, COL.mountL);
-  }
-  rect(p, 0, groundY, w, 360 - groundY, COL.dirt);
-  for (let y = groundY + 2; y < 360; y += 6) {
-    for (let x = ((y * 7) % 26); x < w; x += 26) {
-      p.put(x, y, COL.dirtD);
-      p.put(x + 8, y + 2, COL.dirtL);
-      p.put(x + 15, y + 1, COL.dirtD);
+    const h1 = 48 + Math.round(34 * Math.sin(x * 0.019) + 20 * Math.sin(x * 0.051 + 2));
+    // левая (тёмная) грань
+    rect(p, x, groundY - h1 - 66, 2, h1, hex('#2a2438'));
+    // солнечная подсветка правого склона (только у вершин, нерегулярно)
+    if (h1 > 82 && Math.sin(x * 0.019) > 0.55) {
+      const lh = Math.round(h1 * 0.5);
+      rect(p, x, groundY - h1 - 66, 2, lh, hex('#4a4260'), 0.5);
+    }
+    // снежная шапка на высоких пиках
+    if (h1 > 78) {
+      const capH = Math.min(9, h1 - 78);
+      rect(p, x, groundY - h1 - 66, 2, capH, hex('#5a5470'));
+      if (h1 > 88) p.put(x, groundY - h1 - 66, hex('#8a84a0'));
     }
   }
+  // ---- СРЕДНИЙ ХРЕБЕТ: светлее, со скальной текстурой ----
+  for (let x = 0; x < w; x += 2) {
+    const h2 = 30 + Math.round(24 * Math.sin(x * 0.031 + 1.4) + 14 * Math.sin(x * 0.077 + 0.6));
+    rect(p, x, groundY - h2 - 48, 2, h2, hex('#3a3450'));
+    // освещённый правый склон — только у «рёбер» пиков (нерегулярно)
+    const edge = (Math.sin(x * 0.031 + 1.4) > 0.62);
+    if (edge) {
+      const eh = Math.round(h2 * 0.7);
+      rect(p, x, groundY - h2 - 48, 2, eh, hex('#5a5280'), 0.5);
+    }
+    // редкие трещины — псевдослучайно, без регулярного шага
+    const hash = (x * 2654435761) % 1000;
+    if (hash < 26) {
+      const th = 2 + (hash % 5);
+      const ty = groundY - 48 - Math.round(h2 * (0.25 + (hash % 40) / 100));
+      for (let d = 0; d < th; d++) p.put(x, ty + d, hex('#262038'), 0.45);
+    }
+  }
+  // ---- МЯГКАЯ ДЫМКА у подножия (без регулярной сетки) ----
+  for (let i = 0; i < 260; i++) {
+    // псевдослучайные точки, сгруппированные у стыка гор и леса
+    const rx = (i * 97 + 13) % w;
+    const ry = groundY - 58 + ((i * 37) % 12);
+    const k = 1 - Math.abs(ry - (groundY - 52)) / 7;
+    p.put(rx, ry, hex('#8a7a98'), Math.max(0, k) * 0.10);
+  }
+  // ---- ПОЛОСА ТУМАНА У ПОДНОЖИЯ ----
+  for (let y = groundY - 44; y < groundY - 30; y++) {
+    const k = 1 - Math.abs(y - (groundY - 37)) / 7;
+    for (let x = 0; x < w; x += 2) {
+      if (((x * 3 + y) % 7) < 3) p.put(x, y, hex('#9c8fa8'), k * 0.18);
+    }
+  }
+  // ---- ЗЕМЛЯ: слоями, с травой и камнями ----
+  rect(p, 0, groundY, w, 360 - groundY, COL.dirt);
+  // верхний слой — темнее (утрамбованный)
+  rect(p, 0, groundY, w, 3, COL.dirtD);
+  // текстура земли: несколько слоёв оттенков + галька + корни
+  for (let y = groundY + 4; y < 360; y += 5) {
+    for (let x = ((y * 7) % 22); x < w; x += 22) {
+      p.put(x, y, COL.dirtD);
+      p.put(x + 5, y + 2, COL.dirtL);
+      p.put(x + 11, y + 1, COL.dirtD);
+      if ((x + y) % 3 === 0) p.put(x + 3, y + 3, hex('#4a3826'));
+    }
+  }
+  // темнее к низу — глубина почвы
+  const gH = 360 - groundY;
+  for (let y = groundY; y < 360; y++) {
+    const k = (y - groundY) / gH;
+    if (k > 0.35) {
+      for (let x = ((y * 3) % 5); x < w; x += 5) p.put(x, y, hex('#31251a'), Math.min(0.35, k * 0.35));
+    }
+  }
+  // галька и мелкие камешки
+  for (let i = 0; i < 46; i++) {
+    const gx = (i * 97 + 31) % w;
+    const gy = groundY + 6 + ((i * 53) % Math.max(4, gH - 8));
+    const c = i % 3 === 0 ? hex('#6a6152') : i % 3 === 1 ? hex('#57503f') : hex('#7d7460');
+    p.put(gx, gy, c);
+    p.put(gx + 1, gy, c);
+    if (i % 4 === 0) p.put(gx, gy + 1, hex('#463d2c'));
+  }
+  // корни и трещины у поверхности
+  for (let i = 0; i < 18; i++) {
+    const rx = (i * 71 + 13) % w;
+    const ry = groundY + 3;
+    p.put(rx, ry, hex('#3d2e1e'));
+    p.put(rx + 1, ry + 1, hex('#3d2e1e'));
+    p.put(rx + 2, ry + 1, hex('#4a3826'));
+    if (i % 3 === 0) p.put(rx - 1, ry + 2, hex('#3d2e1e'));
+  }
+  // тёмные лужи/тени между комьями
+  for (let i = 0; i < 12; i++) {
+    const sx = (i * 113 + 47) % w;
+    const sy = groundY + 10 + ((i * 37) % Math.max(3, gH - 14));
+    for (let d = 0; d < 6; d++) p.put(sx + d, sy, hex('#2a1f16'), 0.5);
+  }
+  // ---- ТРАВА: густая, с травинками разной высоты ----
   for (let x = 0; x < w; x++) {
     p.put(x, groundY - 1, COL.grass);
     p.put(x, groundY - 2, (x & 1) ? COL.grass : COL.grassD);
-    if ((x * 7 + 3) % 5 < 2) p.put(x, groundY - 3, COL.grass);
-    if ((x * 11 + 5) % 9 < 2) p.put(x, groundY - 4, COL.grassD);
+    const blade = (x * 7 + 3) % 5;
+    if (blade < 2) p.put(x, groundY - 3, COL.grass);
+    if (blade === 0) p.put(x, groundY - 4, COL.grassD);
+    if ((x * 11 + 5) % 13 === 0) p.put(x, groundY - 5, hex('#5a8a3a'));
   }
+  // ---- КАМНИ И КОЧКИ ----
   for (let x = 28; x < w; x += 94) {
     const gy = groundY + 8 + (x % 10);
-    rect(p, x, gy, 6, 4, COL.rock);
-    p.put(x + 2, gy - 1, COL.stoneL);
-    p.put(x + 4, gy + 4, COL.dirtD);
+    rect(p, x, gy, 7, 5, COL.rock);
+    p.put(x + 2, gy - 1, COL.stoneL);   // блик
+    p.put(x + 5, gy - 1, COL.stoneL);
+    p.put(x + 4, gy + 5, COL.dirtD);    // тень
+    p.put(x - 1, gy + 4, COL.dirtD);
+  }
+  // мелкие цветы/травинки у стены
+  for (let x = 8; x < 90; x += 11) {
+    if ((x * 3) % 4 === 0) {
+      p.put(x, groundY - 4, hex('#d86a8a'));
+      p.put(x, groundY - 5, hex('#f0a0b8'));
+    }
   }
 }
 
 // ---------- Замок (640×360: стена 92 wide, детали мельче) ----------
 export function drawCastle(p, groundY, hpFrac, t) {
   const wallTop = groundY - 128, wallW = 92;
-  rect(p, 0, wallTop, wallW, groundY - wallTop, COL.stone);
-  // кладка: ряды по 8px, «кирпичи» со смещением — мельче, чем раньше
+  const flick = Math.sin(t * 7) > 0 ? 1 : 0;
+
+  // ---- ОСНОВАНИЕ: цоколь с валунами ----
+  rect(p, 0, groundY - 7, wallW + 6, 7, hex('#4a4238'));
+  for (let x = 0; x < wallW + 6; x += 11) {
+    rect(p, x, groundY - 7, 9, 5, hex('#5c5346'));
+    p.put(x + 1, groundY - 7, hex('#6e6454'));
+    p.put(x + 7, groundY - 3, hex('#3a332a'));
+  }
+
+  // ---- СТЕНА: кладка с объёмом (свет слева сверху) ----
+  rect(p, 0, wallTop, wallW, groundY - 7 - wallTop, COL.stone);
   for (let row = 0; row * 8 < groundY - wallTop; row++) {
     const yy = wallTop + 5 + row * 8;
     for (let x = 0; x < wallW; x++) p.put(x, yy, COL.stoneD);
-    for (let x = ((row % 2) ? 0 : 7); x < wallW; x += 15)
+    for (let x = ((row % 2) ? 0 : 7); x < wallW; x += 15) {
       for (let y = yy + 1; y < yy + 8 && y < groundY; y++) p.put(x, y, COL.stoneD);
-    // блик на верхнем краю ряда
-    for (let x = 0; x < wallW; x += 3) p.put(x, yy + 1, COL.stoneL, 0.35);
+    }
+    // блик сверху каждого ряда — создаёт объём
+    for (let x = 0; x < wallW; x += 2) p.put(x, yy + 1, COL.stoneL, 0.3);
+    // случайные тёмные камни для разнообразия
+    for (let x = ((row * 5) % 13); x < wallW; x += 19) {
+      p.put(x, yy + 3, hex('#8a8478'));
+      p.put(x + 1, yy + 4, hex('#8a8478'));
+    }
   }
-  for (let x = 0; x < wallW; x++) p.put(x, wallTop + 1, COL.stoneL);
-  // зубцы (мерлоны) мельче и ровнее
+  // правая грань стены — в тени
+  for (let y = wallTop; y < groundY - 7; y++) {
+    p.put(wallW - 1, y, hex('#6b6558'));
+    p.put(wallW - 2, y, hex('#7d776a'), 0.5);
+  }
+  // мох у основания
+  for (let x = 0; x < wallW; x += 3) {
+    if ((x * 7) % 5 < 2) {
+      p.put(x, groundY - 8, hex('#3f5a2a'));
+      p.put(x + 1, groundY - 9, hex('#4f6a30'));
+    }
+  }
+
+  // ---- ЗУБЦЫ стены с глубиной (фронт + верхняя грань светлее) ----
   for (let x = 0; x < wallW; x += 16) {
     rect(p, x, wallTop - 10, 9, 11, COL.stone);
     for (let i = 0; i < 9; i++) p.put(x + i, wallTop - 10, COL.stoneLL);
+    // тёмная правая грань зубца
+    for (let y = wallTop - 10; y < wallTop + 1; y++) p.put(x + 8, y, hex('#7d776a'));
     for (let i = 0; i < 9; i += 4) p.put(x + i, wallTop - 6, COL.stoneD);
-    p.put(x, wallTop - 1, COL.stoneD);
   }
-  // башня слева (шире, с окном и черепицей)
-  const tw = 32, tTop = wallTop - 40;
+
+  // ---- ЛЕВАЯ БАШНЯ (главная, с черепичной крышей) ----
+  const tw = 32, tTop = wallTop - 46;
   rect(p, 0, tTop, tw, groundY - tTop, COL.stone);
   for (let row = 0; row * 8 < groundY - tTop; row++) {
     const yy = tTop + 5 + row * 8;
     for (let x = 0; x < tw; x++) p.put(x, yy, COL.stoneD);
+    for (let x = ((row % 2) ? 0 : 6); x < tw; x += 12) {
+      for (let y = yy + 1; y < yy + 8 && y < groundY; y++) p.put(x, y, COL.stoneD);
+    }
   }
-  for (let y = tTop; y < groundY; y++) p.put(tw - 2, y, COL.stoneL);
-  for (let x = 0; x < tw; x += 14) {
-    rect(p, x, tTop - 10, 8, 11, COL.stone);
-    for (let i = 0; i < 8; i++) p.put(x + i, tTop - 10, COL.stoneLL);
+  // светлая грань башни
+  for (let y = tTop; y < groundY - 7; y++) {
+    p.put(tw - 3, y, COL.stoneL);
+    p.put(tw - 2, y, hex('#8a8478'));
   }
-  rect(p, 12, tTop + 20, 7, 14, COL.stoneDD);   // окно-бойница
-  p.put(15, tTop + 20, COL.dark);
-  p.put(13, tTop + 25, COL.dark);
-  // ворота с аркой, досками и кольцом
-  const gw = 32, gh = 40;
-  rect(p, 32, groundY - gh, gw, gh, COL.woodD);
-  for (let i = 3; i < gw; i += 5) rect(p, 32 + i, groundY - gh, 1, gh, COL.wood);
+  // черепичная крыша-конус с цветными рядами
+  const roofH = 20;
+  for (let i = 0; i < roofH; i++) {
+    const hw = Math.round((tw * 0.62) * (1 - i / roofH));
+    const yy = tTop - roofH + i;
+    for (let dx = -hw; dx <= hw; dx++) {
+      const isDark = (i + Math.abs(dx)) % 4 < 2;
+      p.put(16 + dx, yy, isDark ? hex('#7a2f26') : hex('#9c3f30'));
+    }
+    // блик на левом скате
+    for (let dx = -hw; dx < -hw / 2; dx++) p.put(16 + dx, yy, hex('#c25a44'), 0.45);
+  }
+  // флюгер
+  rect(p, 16, tTop - roofH - 8, 1, 8, hex('#5c5346'));
+  const fdir = Math.sin(t * 1.6) > 0 ? 1 : -1;
+  p.put(16 + fdir, tTop - roofH - 8, COL.gold);
+  p.put(16 + fdir * 2, tTop - roofH - 7, COL.gold);
+  p.put(16 - fdir, tTop - roofH - 9, hex('#b8b0a0'));
+
+  // окно-бойница с тёплым светом изнутри (мерцает)
+  rect(p, 11, tTop + 24, 9, 15, hex('#2a2620'));
+  rect(p, 12, tTop + 25, 7, 13, flick ? hex('#f0a83c') : hex('#d88c28'));
+  rect(p, 13, tTop + 26, 5, 11, hex('#ffc85a'), 0.6);
+  p.put(14, tTop + 28, hex('#fff0b0'));
+  p.line(12, tTop + 31, 18, tTop + 31, hex("#3a3228"));
+  // факел у окна — живое пламя
+  rect(p, 24, tTop + 30, 1, 7, hex('#4a3a28'));
+  for (let i = 0; i < 3; i++) {
+    const fy = tTop + 30 - i - (flick ? 1 : 0);
+    p.put(24, fy, i === 2 ? hex('#fff2b0') : i === 1 ? hex('#ffb03c') : hex('#e0641c'));
+    if (i < 2) p.put(24 + ((i % 2) ? 1 : -1), fy, hex('#f08030'), 0.6);
+  }
+  p.put(24, tTop + 26, hex('#ffd080'), 0.15 + 0.1 * flick);
+
+  // ---- ВОРОТА: арка, доски, кольцо, факелы по бокам ----
+  const gw = 34, gh = 42, gx = 30;
+  rect(p, gx, groundY - gh, gw, gh, COL.woodD);
+  for (let i = 3; i < gw; i += 5) rect(p, gx + i, groundY - gh, 1, gh, COL.wood);
+  // арка сверху
   for (let i = 0; i < gw; i++) {
-    const dy = Math.round(Math.abs(i - gw / 2) * 0.9);
-    for (let y = groundY - gh; y < groundY - gh + dy; y++) p.put(32 + i, y, COL.stoneDD);
+    const dy = Math.round(Math.abs(i - gw / 2) * 0.95);
+    for (let y = groundY - gh; y < groundY - gh + dy; y++) p.put(gx + i, y, COL.stoneDD);
   }
-  for (let x = 34; x < 32 + gw; x += 9) rect(p, x, groundY - gh + 12, 1, gh - 12, COL.stoneDD);
-  p.put(46, groundY - 18, COL.gold);
-  p.put(47, groundY - 18, COL.gold);
-  // трещины от урона — больше уровней, тонкие
-  const dmgLvl = Math.floor((1 - hpFrac) * 7);
+  // железные полосы
+  for (let x = gx + 5; x < gx + gw; x += 9) rect(p, x, groundY - gh + 14, 1, gh - 14, hex('#4a4440'));
+  // кольцо
+  p.put(gx + 17, groundY - 19, COL.gold);
+  p.put(gx + 18, groundY - 19, COL.gold);
+  p.put(gx + 17, groundY - 18, hex('#b8901e'));
+  // факелы по бокам ворот
+  for (const fx of [gx - 4, gx + gw + 2]) {
+    rect(p, fx, groundY - 32, 1, 8, hex('#4a3a28'));
+    const h = flick ? 3 : 2;
+    for (let i = 0; i < h; i++) p.put(fx, groundY - 32 - i, i === h - 1 ? hex('#ffe08a') : hex('#f08030'));
+    p.put(fx, groundY - 36, hex('#ffb03c'), 0.2);
+    // отсвет на стене
+    p.put(fx + (fx < gx ? 1 : -1), groundY - 30, hex('#c98a3a'), 0.25);
+  }
+
+  // ---- ПРАВАЯ МАЛАЯ БАШНЯ (у края стены) ----
+  const rw = 20, rTop = wallTop - 30, rx = wallW - rw;
+  rect(p, rx, rTop, rw, groundY - 7 - rTop, COL.stone);
+  for (let row = 0; row * 8 < groundY - rTop; row++) {
+    const yy = rTop + 5 + row * 8;
+    for (let x = rx; x < wallW; x++) p.put(x, yy, COL.stoneD);
+  }
+  for (let y = rTop; y < groundY - 7; y++) p.put(wallW - 1, y, hex('#6b6558'));
+  // зубцы малой башни
+  for (let x = rx; x < wallW; x += 9) {
+    rect(p, x, rTop - 7, 6, 8, COL.stone);
+    for (let i = 0; i < 6; i++) p.put(x + i, rTop - 7, COL.stoneLL);
+  }
+  // синий флаг на малой башне (развевается)
+  const fw = Math.round(Math.sin(t * 3.2) * 2);
+  rect(p, rx + 9, rTop - 26, 1, 20, hex('#5c5346'));
+  for (let i = 0; i < 14; i++) {
+    const wob = Math.round(Math.sin(t * 3.2 + i * 0.25) * (i / 8));
+    for (let h = 0; h < 8 - Math.abs(i - 7) / 3; h++) {
+      p.put(rx + 10 + i, rTop - 26 + h + wob, h === 0 ? hex('#4a6fa8') : hex('#3a5f98'));
+    }
+  }
+  p.put(rx + 10, rTop - 27, COL.gold);
+
+  // ---- КРАСНЫЙ ФЛАГ на главной башне (развевается) ----
+  const flagX = 26, wave = Math.round(Math.sin(t * 3) * 2);
+  rect(p, flagX, wallTop - 34, 1, 22, COL.woodD);
+  for (let i = 0; i < 15; i++) {
+    const wob = Math.round(Math.sin(t * 3 + i * 0.3) * (i / 9));
+    const hh = 9 - Math.round(Math.abs(i - 7) / 2.2);
+    for (let h = 0; h < hh; h++) {
+      p.put(flagX + 1 + i, wallTop - 34 + h + wob, h === 0 ? hex('#e05a44') : COL.red);
+    }
+  }
+  p.put(flagX + 4, wallTop - 30, COL.gold);
+  p.put(flagX + 6, wallTop - 30, COL.gold);
+  p.put(flagX + 5, wallTop - 31, COL.gold);
+
+  // ---- ТРЕЩИНЫ ОТ УРОНА ----
+  const dmgLvl = Math.floor((1 - hpFrac) * 8);
   for (let d = 0; d < dmgLvl; d++) {
-    const cx = 8 + d * 12, cy = wallTop + 28 + (d % 3) * 24;
+    const cx = 6 + d * 11, cy = wallTop + 26 + (d % 4) * 20;
     p.line(cx, cy, cx + 6, cy + 4, COL.stoneDD);
     p.line(cx + 6, cy + 4, cx + 4, cy + 10, COL.stoneDD);
     p.put(cx + 6, cy + 4, COL.stoneDD);
     p.line(cx + 4, cy + 10, cx + 9, cy + 14, COL.stoneDD);
-    p.put(cx + 2, cy + 2, COL.stoneD);
+    p.put(cx + 2, cy + 2, hex('#6b6558'));
+    // пыль из трещины
+    if (flick) p.put(cx + 5, cy + 12, hex('#b8b0a0'), 0.5);
   }
-  // флаг
-  const flagX = 24, wave = Math.round(Math.sin(t * 3) * 2);
-  rect(p, flagX, wallTop - 36, 2, 24, COL.woodD);
-  rect(p, flagX + 2, wallTop - 36, 16, 10, COL.red);
-  rect(p, flagX + 2, wallTop - 28, 16, 2, COL.redD);
-  p.put(flagX + 4, wallTop - 36, COL.woodD);
-  p.put(flagX + 9 + wave, wallTop - 31, COL.gold);
-  p.put(flagX + 4 + wave, wallTop - 31, COL.gold);
 }
 
 // ---------- Лучник (2× детализация, тонкие линии) ----------
@@ -186,6 +433,16 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
   const breathe2 = Math.sin(time * 2.2) > 0.6 ? 1 : 0;
   const lean = Math.round(bowPull * 3);
   const bx0 = x - lean;
+
+  // мягкая тень на земле под героем
+  for (let dx = -12; dx <= 14; dx++) {
+    const k = 1 - Math.abs(dx - 1) / 14;
+    if (k > 0) p.put(x + dx, y, 0x40281a10, 0.42 * k);
+  }
+  for (let dx = -8; dx <= 11; dx++) {
+    const k = 1 - Math.abs(dx - 1.5) / 10;
+    if (k > 0) p.put(x + dx, y + 1, 0x40281a10, 0.3 * k);
+  }
   // сапоги (цвет зависит от надетых сапог)
   const bootC = gear && gear.boot ? gear.boot[0] : COL.leatherD;
   const bootL = gear && gear.boot ? gear.boot[1] : COL.leather;
@@ -227,8 +484,19 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
   // колчан за спиной
   rect(p, x - 4, y - 32, 6, 12, COL.woodDD);
   rect(p, x - 3, y - 32, 1, 12, COL.woodD);
-  p.put(x - 4, y - 34, COL.steel); p.put(x - 2, y - 34, COL.steel);
-  p.put(x - 1, y - 33, COL.steel);
+  // ободок колчана
+  for (let dx = -4; dx <= 1; dx++) p.put(x + dx, y - 32, COL.leatherD);
+  // три стрелы с цветным оперением
+  const arrowFeathers = [COL.red, 0xffd8e0ff, COL.gold];
+  for (let i = 0; i < 3; i++) {
+    const ax = x - 4 + i * 2;
+    rect(p, ax, y - 38, 1, 7, COL.woodD);          // древко
+    p.put(ax, y - 39, COL.steel);                   // наконечник
+    p.put(ax - 1, y - 37, arrowFeathers[i]);        // оперение
+    p.put(ax + 1, y - 36, arrowFeathers[i]);
+  }
+  // ремень колчана через плечо
+  p.line(x - 3, y - 30, x + 4, y - 20, COL.leatherD);
   // голова
   rect(p, x + 4, y - 32 + breathe, 8, 10, COL.skin);
   p.put(x + 10, y - 28 + breathe, COL.dark);
@@ -292,6 +560,16 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
       p.dot(sx, sy, ac, (1 - ph) * 0.8 * k);
     }
   }
+  // контровой свет: контур подсвечивается цветом ауры (у редких/легендарных)
+  if (gear && gear.aura && gear.aura.k > 0.3) {
+    const ac = gear.aura.col, ak = 0.18 + 0.12 * Math.sin(time * 3);
+    // правая кромка тела и головы
+    for (let yy = y - 34; yy < y - 4; yy++) p.dot(x + 14, yy + breathe, ac, ak);
+    p.dot(x + 12, y - 33 + breathe, ac, ak * 1.4);
+    p.dot(x + 9, y - 40 + breathe, ac, ak * 1.2);
+    // плечо
+    p.dot(x + 15, y - 21 + breathe, ac, ak);
+  }
   // тетива
   const vib = recoil ? Math.round(Math.sin(time * 60) * 1.5) : 0;
   const nockX = bx - pull + (recoil ? 4 + vib : 0);
@@ -316,6 +594,12 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
 export function drawEnemy(p, e, time = 0) {
   const x = Math.round(e.x), y = Math.round(e.y);
   const walking = e.x > 104;
+  // тень под врагом (шире у боссов)
+  const shW = e.isBoss ? 20 : e.kind === 'ogre' ? 16 : 10;
+  for (let dx = -shW; dx <= shW; dx++) {
+    const k = 1 - Math.abs(dx) / (shW + 1);
+    if (k > 0) p.put(x + dx, y, 0x48180e08, 0.4 * k);
+  }
   const step = walking ? Math.round(Math.sin(e.walkT * 8)) : 0;
   // замах оружием при ударе по стене
   const atkPhase = (!walking && e.atkT > 0) ? (e.atkT > 0.5 ? 1 : 0) : 0;
@@ -331,31 +615,73 @@ export function drawEnemy(p, e, time = 0) {
   } else if (e.kind === 'skeleton') {
     drawSkeleton(p, e, x, y, time, step);
   } else if (e.kind === 'ogre') {
-    // ноги
-    rect(p, x - 10, y - 10, 8, 10, COL.orcD);
-    rect(p, x + 4, y - 10, 8, 10, COL.orcD);
-    p.put(x - 9, y - 9, COL.orc); p.put(x + 5, y - 9, COL.orc);
-    // туловище
-    rect(p, x - 12, y - 30, 26, 22, COL.orc);
-    rect(p, x - 12, y - 30, 26, 3, COL.orcD);
-    rect(p, x - 2, y - 24, 7, 12, COL.orcD);
-    p.line(x - 10, y - 18, x - 4, y - 22, COL.orcD);
-    // голова
-    rect(p, x - 8, y - 42, 18, 14, COL.orcD);
-    rect(p, x - 4, y - 38, 4, 4, COL.red);
-    rect(p, x + 4, y - 38, 4, 4, COL.red);
-    p.put(x - 3, y - 37, 0xffff7b6a); p.put(x + 5, y - 37, 0xffff7b6a);
-    // клыки
-    p.put(x - 2, y - 30, COL.steel); p.put(x + 4, y - 30, COL.steel);
-    p.put(x - 2, y - 29, COL.steel); p.put(x + 4, y - 29, COL.steel);
-    // руки и дубина
-    rect(p, x - 18, y - 28 + step, 6, 14, COL.orc);
-    rect(p, x + 12 - atkPhase * 4, y - 28 - step, 6, 14, COL.orc);
-    const hy2 = y - 40 - step * 2 + atkPhase * 16;
-    rect(p, x + 16, hy2, 4, 24, COL.wood);
-    rect(p, x + 14, hy2 - 6, 8, 8, COL.woodD);
-    p.put(x + 17, hy2 - 7, COL.steel); p.put(x + 15, hy2 - 2, COL.steel);
-    p.put(x + 19, hy2 + 2, COL.steel);
+    // ОГР: крупные читаемые формы. тёмный контур всей фигуры, 2 оттенка зелёного
+    const OG = hex('#6a9a48');      // светлый зелёный (освещённая сторона)
+    const OGD = hex('#3e5f28');     // тёмный зелёный (тень)
+    const OUTL = hex('#1e2a14');    // контур
+    // ноги-колонны
+    rect(p, x - 13, y - 14, 11, 14, OGD);
+    rect(p, x + 4, y - 14, 11, 14, OGD);
+    rect(p, x - 13, y - 14, 4, 14, OG);         // блик на левой ноге
+    rect(p, x + 4, y - 14, 3, 14, OG);
+    // ступни
+    rect(p, x - 15, y - 4, 15, 4, OUTL);
+    rect(p, x + 3, y - 4, 15, 4, OUTL);
+    // массивный торс (трапеция)
+    for (let i = 0; i < 20; i++) {
+      const hw = 12 + Math.round(i * 0.35);
+      const yy = y - 34 + i;
+      for (let dx = -hw; dx <= hw; dx++) {
+        const light = dx < -hw * 0.15;
+        p.put(x + dx, yy, light ? OG : OGD);
+      }
+    }
+    // контур торса
+    for (let i = 0; i < 20; i++) {
+      const hw = 12 + Math.round(i * 0.35);
+      p.put(x - hw, y - 34 + i, OUTL);
+      p.put(x + hw, y - 34 + i, OUTL);
+    }
+    // набедренная повязка
+    rect(p, x - 12, y - 18, 25, 5, hex('#5a4228'));
+    rect(p, x - 12, y - 18, 25, 1, hex('#7a5c38'));
+    // голова: крупная, с выраженным подбородком
+    rect(p, x - 9, y - 50, 19, 17, OGD);
+    rect(p, x - 9, y - 50, 6, 17, OG);              // освещённая половина лица
+    for (let i = 0; i < 19; i++) { p.put(x - 9 + i, y - 50, OUTL); p.put(x - 9 + i, y - 34, OUTL); }
+    for (let i = 0; i < 17; i++) { p.put(x - 9, y - 50 + i, OUTL); p.put(x + 9, y - 50 + i, OUTL); }
+    // надбровные дуги + глубоко посаженные глаза
+    rect(p, x - 7, y - 46, 6, 2, OUTL);
+    rect(p, x + 2, y - 46, 6, 2, OUTL);
+    rect(p, x - 6, y - 44, 4, 3, hex('#f2c23a'));   // жёлтые глаза
+    rect(p, x + 3, y - 44, 4, 3, hex('#f2c23a'));
+    p.put(x - 5, y - 43, hex('#8a1f17'));           // зрачок
+    p.put(x + 4, y - 43, hex('#8a1f17'));
+    // нос-кнопка и оскал с клыками
+    rect(p, x - 1, y - 41, 3, 3, OUTL);
+    rect(p, x - 6, y - 37, 13, 3, hex('#3a1a14'));  // рот
+    p.put(x - 5, y - 37, hex('#e8e2d0'));           // клыки
+    p.put(x - 5, y - 36, hex('#e8e2d0'));
+    p.put(x + 5, y - 37, hex('#e8e2d0'));
+    p.put(x + 5, y - 36, hex('#e8e2d0'));
+    // плечи-валуны
+    rect(p, x - 19, y - 34, 8, 10, OGD);
+    rect(p, x + 12, y - 34, 8, 10, OGD);
+    rect(p, x - 19, y - 34, 8, 3, OG);
+    rect(p, x + 12, y - 34, 8, 3, OG);
+    // руки: толстые, с кулаками
+    rect(p, x - 21, y - 30 + step, 7, 16, OGD);
+    rect(p, x + 15, y - 30 - step, 7, 16, OGD);
+    rect(p, x - 22, y - 16 + step, 9, 7, OG);       // кулак
+    rect(p, x + 15, y - 16 - step, 9, 7, OG);
+    // дубина с шипами
+    const hy2 = y - 44 - step * 2 + atkPhase * 16;
+    rect(p, x + 20, hy2, 5, 26, hex('#5a4528'));
+    rect(p, x + 20, hy2, 2, 26, hex('#7a5f38'));
+    rect(p, x + 17, hy2 - 8, 11, 10, hex('#4a3520'));
+    for (const [dx2, dy2] of [[-1, -2], [9, -1], [3, 7], [-2, 6], [10, 6], [4, -5]]) {
+      p.put(x + 17 + dx2, hy2 - 8 + dy2, hex('#b8b0a0'));
+    }
   } else if (e.kind === 'orc') {
     rect(p, x - 4, y - 6, 4, 6, COL.orcD);
     rect(p, x + 2, y - 6, 4, 6, COL.orcD);
@@ -365,10 +691,21 @@ export function drawEnemy(p, e, time = 0) {
     p.line(x - 6, y - 18 + step, x - 6, y - 8 + step, COL.orcD);
     // голова
     rect(p, x - 6, y - 32 + step, 14, 12, COL.orcD);
-    p.put(x - 4, y - 28 + step, COL.red); p.put(x - 4, y - 27 + step, COL.red);
-    p.put(x + 4, y - 28 + step, COL.red); p.put(x + 4, y - 27 + step, COL.red);
+    // боевая раскраска — красные полосы на щеке
+    p.line(x - 6, y - 26 + step, x - 3, y - 30 + step, hex('#c9302a'));
+    p.line(x - 5, y - 24 + step, x - 2, y - 28 + step, hex('#c9302a'));
+    // глаза с бликом
+    p.put(x - 4, y - 28 + step, COL.red); p.put(x - 4, y - 27 + step, hex('#ffd24a'));
+    p.put(x + 4, y - 28 + step, COL.red); p.put(x + 4, y - 27 + step, hex('#ffd24a'));
     p.put(x - 2, y - 22 + step, COL.steel);        // клык
     p.put(x + 4, y - 22 + step, COL.steel);
+    // костяные бусы на груди
+    for (let i = 0; i < 4; i++) {
+      p.put(x - 5 + i * 3, y - 20 + step + (i % 2), hex('#e8e2d0'));
+    }
+    // кожаные ремни через торс
+    p.line(x - 7, y - 21 + step, x + 8, y - 15 + step, hex('#4a2f18'));
+    p.line(x - 7, y - 20 + step, x + 8, y - 14 + step, hex('#6a4522'));
     // копьё с замахом
     const spear = atkPhase ? -6 : 0;
     rect(p, x + 10 + spear, y - 32, 2, 32, COL.wood);
@@ -381,17 +718,33 @@ export function drawEnemy(p, e, time = 0) {
     // тело
     rect(p, x - 8, y - 24 + step, 18, 20, COL.armor);
     rect(p, x - 8, y - 24 + step, 18, 2, COL.steel);
+    // красный сюрко поверх доспеха
+    rect(p, x - 2, y - 23 + step, 7, 19, hex('#a8322a'));
+    rect(p, x - 2, y - 23 + step, 3, 19, hex('#c94f3d'));
+    // золотая эмблема на сюрко
+    p.put(x + 1, y - 18 + step, COL.gold);
+    p.put(x + 1, y - 17 + step, COL.gold);
+    p.put(x, y - 16 + step, hex('#b8901e'));
     rect(p, x - 4, y - 18 + step, 10, 8, COL.armorD);   // нагрудник
     p.put(x - 4, y - 16 + step, COL.steel); p.put(x + 4, y - 16 + step, COL.steel);
     p.line(x - 8, y - 12 + step, x + 9, y - 12 + step, COL.armorD);
     p.line(x - 8, y - 7 + step, x + 9, y - 7 + step, COL.armorD);
+    // наплечники с бликом
+    rect(p, x - 10, y - 24 + step, 3, 5, hex('#b8b8c8'));
+    rect(p, x + 8, y - 24 + step, 3, 5, hex('#b8b8c8'));
     // шлем с забралом и плюмажем
     rect(p, x - 6, y - 36 + step, 14, 12, COL.armorD);
     rect(p, x - 6, y - 36 + step, 14, 2, COL.steel);
+    // золотая окантовка шлема
+    for (let i = 0; i < 14; i++) p.put(x - 6 + i, y - 35 + step, hex('#c9a44f'), 0.8);
     rect(p, x - 4, y - 32 + step, 10, 2, COL.visor);
     p.line(x - 4, y - 29 + step, x + 5, y - 29 + step, COL.visor);
-    p.put(x - 8, y - 40 + step, COL.red); p.put(x - 7, y - 40 + step, COL.red);
-    p.put(x - 7, y - 41 + step, COL.redD);
+    // плюмаж: три пера разного цвета, колышутся
+    const pl = Math.round(Math.sin(time * 4 + x) * 1);
+    p.put(x - 7, y - 40 + step, hex('#d94a3a'));
+    p.put(x - 6, y - 41 + step, hex('#e86a50'));
+    p.put(x - 8 + pl, y - 42 + step, hex('#f09070'));
+    p.put(x - 5, y - 42 + step, hex('#c93d2a'));
     // щит с гербом
     rect(p, x - 14, y - 24 + step, 6, 14, COL.red);
     rect(p, x - 14, y - 24 + step, 6, 2, COL.redD);
@@ -568,18 +921,86 @@ function drawBoss(p, e, x, y, time, walkStep) {
 
 // скелеты (призыв некроманта)
 function drawSkeleton(p, e, x, y, time, step) {
-  rect(p, x - 3, y - 7, 2, 7, hex('#c9c2b0'));
-  rect(p, x + 2, y - 7, 2, 7, hex('#c9c2b0'));
-  // рёбра
-  rect(p, x - 5, y - 20 + step, 11, 13, hex('#c9c2b0'));
-  for (let i = 0; i < 4; i++) p.line(x - 4, y - 18 + step + i * 3, x + 5, y - 18 + step + i * 3, hex('#8a8378'));
-  // череп
-  rect(p, x - 4, y - 28 + step, 9, 8, hex('#e8e2d0'));
-  p.put(x - 3, y - 25 + step, hex('#1a1a1a')); p.put(x + 2, y - 25 + step, hex('#1a1a1a'));
+  const BONE = hex('#e8e2d0'), BONED = hex('#a89f8c'), OUTL = hex('#2a2620');
+  // ноги
+  rect(p, x - 4, y - 8, 3, 8, BONED);
+  rect(p, x + 2, y - 8, 3, 8, BONED);
+  p.put(x - 5, y - 1, OUTL); p.put(x + 5, y - 1, OUTL);
+  // позвоночник
+  rect(p, x, y - 22 + step, 2, 14, BONED);
+  // три крупных ребра (читаемо на мелком масштабе)
+  for (let i = 0; i < 3; i++) {
+    const ry = y - 20 + step + i * 4;
+    rect(p, x - 5 + i, ry, 11 - i * 2, 2, BONE);
+    p.put(x - 6 + i, ry, OUTL);
+    p.put(x + 6 - i, ry, OUTL);
+  }
+  // таз
+  rect(p, x - 4, y - 9, 9, 2, BONE);
+  // плечи
+  rect(p, x - 6, y - 23 + step, 13, 2, BONE);
+  // череп: крупный, с глазницами и челюстью
+  rect(p, x - 5, y - 33 + step, 11, 10, BONE);
+  for (let i = 0; i < 11; i++) p.put(x - 5 + i, y - 33 + step, hex('#ffffff'));
+  p.put(x - 5, y - 32 + step, OUTL); p.put(x + 5, y - 32 + step, OUTL);
+  // глазницы
+  rect(p, x - 4, y - 30 + step, 3, 3, OUTL);
+  rect(p, x + 2, y - 30 + step, 3, 3, OUTL);
+  // красный огонёк в глазах (нежить)
+  p.put(x - 3, y - 29 + step, hex('#c93d2a'));
+  p.put(x + 3, y - 29 + step, hex('#c93d2a'));
+  // нос и зубы
+  p.put(x, y - 27 + step, OUTL);
+  for (let i = 0; i < 4; i++) p.put(x - 3 + i * 2, y - 24 + step, OUTL);
   // копьё
-  rect(p, x + 8, y - 26, 1, 26, hex('#6a5a4a'));
-  p.put(x + 8, y - 28, hex('#a0a0b0'));
+  rect(p, x + 9, y - 28, 1, 28, hex('#6a5a4a'));
+  rect(p, x + 9, y - 30, 2, 3, hex('#b0b0c0'));
+  p.put(x + 10, y - 29, hex('#e8e8f0'));
+  // рваный плащ
+  for (let i = 0; i < 8; i++) {
+    p.put(x - 7 - (i % 2), y - 22 + step + i * 2, hex('#4a4038'), 0.8);
+  }
 }
+
+  // ---- СТАТУСНЫЕ ОВЕРЛЕИ ----
+  // заморозка: голубоватая кромка + ледяные кристаллы
+  if (e.frozen > 0) {
+    const ik = Math.min(1, e.frozen);
+    const bw = e.isBoss ? 18 : e.kind === 'ogre' ? 14 : 8;
+    const bh = e.isBoss ? 46 : e.kind === 'ogre' ? 34 : 22;
+    for (let dx = -bw; dx <= bw; dx++) {
+      p.put(x + dx, y - 1, 0xfff0d090, 0.35 * ik);
+    }
+    for (let dy = 0; dy < bh; dy += 3) {
+      p.put(x - bw, y - dy, 0xffeed8a0, 0.22 * ik);
+      p.put(x + bw, y - dy, 0xffeed8a0, 0.22 * ik);
+    }
+    // кристаллы льда
+    for (let i = 0; i < 5; i++) {
+      const cx2 = x + ((i * 7) % (bw * 2)) - bw;
+      const cy2 = y - ((i * 11) % bh);
+      p.put(cx2, cy2, 0xfff8f0e0, 0.75 * ik);
+      p.put(cx2, cy2 - 1, 0xffffe8d0, 0.5 * ik);
+    }
+  }
+  // вспышка при попадании — белая подсветка силуэта
+  if (e.hitT > 0) {
+    const hk = Math.min(1, e.hitT * 14) * 0.55;
+    const bw = e.isBoss ? 20 : e.kind === 'ogre' ? 15 : 9;
+    const bh = e.isBoss ? 52 : e.kind === 'ogre' ? 38 : 26;
+    for (let dy = 0; dy < bh; dy += 2) {
+      for (let dx = -bw; dx <= bw; dx += 2) {
+        p.put(x + dx, y - dy, 0xffffffff, hk * 0.35);
+      }
+    }
+  }
+  // ярость огра: красная пульсация
+  if (e.enraged) {
+    const pk = 0.25 + 0.2 * Math.sin(time * 12);
+    for (let dx = -18; dx <= 18; dx += 3) {
+      p.put(x + dx, y - 2, 0xffff3020, pk * 0.5);
+    }
+  }
 
   // полоса HP: у боссов шире, с рамкой и делениями
   const w = e.isBoss ? 56 : e.kind === 'ogre' ? 32 : 20;

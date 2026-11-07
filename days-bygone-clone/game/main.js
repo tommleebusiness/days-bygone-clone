@@ -14,9 +14,9 @@ import * as torchFx from "./fx/small-torch.js?v=4";
 import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg }
   from "./balance.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
-import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=10";
+import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=12";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles, structCost, structCd }
-  from "./structures.js?v=9";
+  from "./structures.js?v=11";
 import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
   SLOT_ORDER, SLOT_NAMES, UNIQUES }
   from "./loot.js?v=4";
@@ -421,6 +421,7 @@ function damageEnemy(e, dmg, crit = false) {
   // броня босса гасит часть урона
   if (e.armor) dmg *= (1 - e.armor);
   e.hp -= dmg;
+  e.hitT = 0.12;
   hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
   if (crit) state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
   // вампиризм: криты лечат стену (узел «Вампиризм»)
@@ -1164,6 +1165,7 @@ function update(dt) {
   const wmod = weather.weatherMods(state.weather.kind);
   for (const e of enemies) {
     e.walkT += dt;
+    if (e.hitT > 0) e.hitT -= dt;
     // заморозка (узел «Ледяные ядра»): враг ползёт на 40% медленнее
     let speedMult = 1;
     if (e.frozen > 0) { e.frozen -= dt; speedMult *= 0.4; }

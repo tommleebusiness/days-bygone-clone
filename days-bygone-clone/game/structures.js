@@ -372,6 +372,82 @@ function lvlStyle(lvl) {
   };
 }
 
+
+// ---------- ЖИВЫЕ УКРАШЕНИЯ ПОСТРОЕК (по уровню) ----------
+// Рисуются поверх отрисованной постройки: флаги, руны, искры, дым.
+function drawStructDeco(p, s, def, t) {
+  const x = Math.round(def.x), G2l = 236;
+  const lvl = s.lvl;
+  const seed = (def.x * 7) % 31;
+  const col = def.color || '#c9a44f';
+
+  // ------- флаг на башнях/сооружениях с 2 уровня -------
+  if (lvl >= 2) {
+    const fh = 8 + lvl * 2;
+    const fy = G2l - (def.h || 60) - 6 + 2;
+    rect(p, x, fy, 1, fh, hex('#5c5346'));
+    // полотнище с волной
+    const fcol = lvl >= 5 ? hex('#e0a030') : lvl >= 3 ? hex('#c94f3d') : hex('#8a5c30');
+    for (let i = 0; i < 9; i++) {
+      const wob = Math.round(Math.sin(t * 3 + i * 0.4 + seed) * (i / 6));
+      const hh = 5 - Math.round(Math.abs(i - 4) / 2.5);
+      for (let h = 0; h < hh; h++) p.put(x + 1 + i, fy + h + wob, i === 0 ? hex('#ffffff') : fcol);
+    }
+  }
+
+  // ------- светящиеся руны на камне (3+) -------
+  if (lvl >= 3) {
+    const pulse = 0.45 + 0.35 * Math.sin(t * 2.5 + seed);
+    const runeCol = def.key === 'mage' ? hex('#c98af5') : hex('#7fd0f0');
+    const ry = G2l - (def.h || 60) * 0.55;
+    p.dot(x, ry, runeCol, pulse);
+    p.dot(x - 1, ry + 2, runeCol, pulse * 0.7);
+    p.dot(x + 1, ry + 2, runeCol, pulse * 0.7);
+    p.dot(x, ry + 4, runeCol, pulse * 0.5);
+  }
+
+  // ------- искры/блики у 4+ -------
+  if (lvl >= 4) {
+    for (let i = 0; i < 3; i++) {
+      const ph = (t * 0.7 + i * 0.33 + seed * 0.1) % 1;
+      const sy = G2l - (def.h || 60) * 0.2 - Math.round(ph * 26);
+      const sx = x + Math.round(Math.sin(t * 2 + i * 2.1 + seed) * 9);
+      p.dot(sx, sy, hex('#ffd870'), (1 - ph) * 0.8);
+    }
+  }
+
+  // ------- дым из котла/жаровни -------
+  if (def.key === 'cauldron') {
+    for (let i = 0; i < 4; i++) {
+      const ph = (t * 0.35 + i * 0.25) % 1;
+      const sy = G2l - 26 - Math.round(ph * 24);
+      const sx = x + Math.round(Math.sin(t * 1.2 + i * 1.7) * 5);
+      p.dot(sx, sy, 0xffe0d8d0, (1 - ph) * 0.25);
+      p.dot(sx + 1, sy - 1, 0xffd0c8c0, (1 - ph) * 0.18);
+    }
+    // пузыри в котле
+    const bub = Math.sin(t * 4) > 0.3 ? 1 : 0;
+    if (bub) p.dot(x - 2, G2l - 30, 0xff60e040, 0.8);
+  }
+
+  // ------- лекарь: пульсирующий крест -------
+  if (def.key === 'healer') {
+    const pulse = 0.4 + 0.4 * Math.sin(t * 2.2);
+    const hx = x, hy = G2l - 40;
+    for (let i = -2; i <= 2; i++) p.dot(hx + i, hy, hex('#7ff09a'), pulse);
+    for (let i = -2; i <= 2; i++) p.dot(hx, hy + i, hex('#7ff09a'), pulse);
+  }
+
+  // ------- шипы: металлический блеск -------
+  if (def.key === 'spikes' && lvl >= 2) {
+    for (let i = 0; i < 5; i++) {
+      const sx = x - 14 + i * 7;
+      const shine = Math.sin(t * 3 + i * 0.8) > 0.6 ? 1 : 0;
+      if (shine) p.put(sx, G2l - 10 - (i % 3) * 2, hex('#f0f0ff'), 0.9);
+    }
+  }
+}
+
 export function drawStructures(p, structs, time) {
   let any = false;
   for (const s of structs) if (s.lvl > 0) any = true;
@@ -706,6 +782,13 @@ export function drawStructures(p, structs, time) {
       }
       for (let i = 0; i < Math.min(5, s.lvl); i++) p.dot(x - 8 + i * 4, G - 2, hex('#7fc97f'));
     }
+  }
+
+  // живые украшения поверх построек
+  for (const s of structs) {
+    if (!s.lvl) continue;
+    const def = STRUCT_DEFS.find(d => d.key === s.key);
+    if (def) drawStructDeco(p, s, def, time);
   }
 }
 
