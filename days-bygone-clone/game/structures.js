@@ -83,7 +83,7 @@ export function createStructures() {
   return STRUCT_DEFS.map(def => ({ key: def.key, lvl: 0, cd: 0, anim: 0 }));
 }
 
-// ctx: { enemies, damageEnemy(e, dmg), spawnFx, shake(v), time, structDmgMult, structCdMult }
+// ctx: { enemies, damageEnemy(e, dmg), spawnFx, shake(v), time, structDmgMult, structCdMult, structFreeze }
 export function updateStructures(dt, structs, ctx) {
   const live = ctx.enemies.filter(e => !e.dead && e.x > 100);
   for (const s of structs) {
@@ -218,7 +218,11 @@ export function updateStructures(dt, structs, ctx) {
         ctx.spawnFx('boom', Math.round(p.x), Math.round(ty - 4));
         ctx.shake(0.3);
         for (const e of live) {
-          if (Math.abs(e.x - p.x) < p.radius) ctx.damageEnemy(e, p.dmg);
+          if (Math.abs(e.x - p.x) < p.radius) {
+            ctx.damageEnemy(e, p.dmg);
+          if (ctx.structFreeze && !e.isBoss) e.frozen = 1.6;
+            if (ctx.structFreeze && !e.isBoss) e.frozen = 1.6;
+          }
         }
         ps.splice(i, 1);
       }

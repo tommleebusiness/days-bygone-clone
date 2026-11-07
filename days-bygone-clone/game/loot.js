@@ -153,7 +153,17 @@ export function rollItem(day, forceBest) {
     else if (stat === 'regen' && !item.regen) item.regen = Math.round(3 * (1 + rar * 0.5));
     else if (stat === 'rate' && (!item.rate || item.rate === 1)) item.rate = +(1 + 0.02 * (1 + rar * 0.5)).toFixed(3);
   }
+  // аффикс-префикс к названию (только для редких+)
+  const aff = pickAffix(item, rar);
+  if (aff) item.name = aff + item.name;
   return item;
+}
+
+// расширенный дроп: с шансом — уникальный предмет
+export function rollDrop(day, forceBest) {
+  const u = rollUnique(day);
+  if (u) return u;
+  return rollItem(day, forceBest);
 }
 
 export function itemSellPrice(item) {
@@ -163,6 +173,15 @@ export function itemSellPrice(item) {
 const KIND_NAME = { short: 'короткая стрела', long: 'длинная стрела',
   heavy: 'тяжёлая стрела', bolt: 'болт', arcane: 'рунная стрела' };
 export function describeItem(item) {
+  if (item.unique && item.effDesc) {
+    const base = [];
+    if (item.dmg) base.push(`+${Math.round(item.dmg * 100)}% урона`);
+    if (item.hp) base.push(`+${item.hp} HP`);
+    if (item.crit) base.push(`+${Math.round(item.crit * 100)}% крит`);
+    if (item.rate && item.rate !== 1) base.push(`+${Math.round((item.rate - 1) * 100)}% скоростр.`);
+    if (item.regen) base.push(`+${item.regen} реген/день`);
+    return `УНИКАЛЬНОЕ · ${base.join(', ')} · ${item.effDesc}`;
+  }
   const parts = [];
   if (item.dmg) parts.push(`+${Math.round(item.dmg * 100)}% урона`);
   if (item.hp) parts.push(`+${item.hp} HP стен`);
@@ -171,6 +190,60 @@ export function describeItem(item) {
   if (item.regen) parts.push(`+${item.regen} реген/день`);
   if (item.kind && KIND_NAME[item.kind]) parts.push(KIND_NAME[item.kind]);
   return `${RAR_NAME[item.rar] || 'базовое'} · ${parts.join(', ')}`;
+}
+
+
+// ---------- АФФИКСЫ: префиксы к названию по главному бонусу ----------
+const AFFIX_DMG = ['Острый', 'Кровавый', 'Яростный', 'Сокрушающий', 'Губительный'];
+const AFFIX_HP = ['Крепкий', 'Дубовый', 'Каменный', 'Непробиваемый', 'Титанический'];
+const AFFIX_CRIT = ['Меткий', 'Смертельный', 'Беспощадный', 'Роковой'];
+const AFFIX_RATE = ['Быстрый', 'Стремительный', 'Вихревой', 'Молниеносный'];
+const AFFIX_REGEN = ['Живучий', 'Целебный', 'Обновляющий', 'Неугасающий'];
+
+function pickAffix(item, rar) {
+  if (rar < 2) return '';
+  const idx = Math.min(4, Math.max(0, rar - 2));
+  if (item.dmg && (!item.hp || item.dmg >= item.hp / 100)) return AFFIX_DMG[idx] + ' ';
+  if (item.hp) return AFFIX_HP[idx] + ' ';
+  if (item.crit) return AFFIX_CRIT[Math.min(3, idx)] + ' ';
+  if (item.rate && item.rate > 1) return AFFIX_RATE[Math.min(3, idx)] + ' ';
+  if (item.regen) return AFFIX_REGEN[Math.min(3, idx)] + ' ';
+  return '';
+}
+
+// ---------- УНИКАЛЬНЫЕ ЛЕГЕНДАРКИ: особые эффекты ----------
+// eff: pierceAdd / extraArrow / explode / goldBoost / lifesteal / freeze
+export const UNIQUES = [
+  { id: 'u1', name: 'Гнев Леса', slot: 'weapon', kind: 'long', rar: 5, dmg: 1.15, crit: 0.06,
+    eff: { explode: 0.35 }, effDesc: 'Криты взрываются сильнее (+35% радиуса)' },
+  { id: 'u2', name: 'Шёпот Ветра', slot: 'weapon', kind: 'short', rar: 5, dmg: 0.95, rate: 1.22,
+    eff: { extraArrow: 1 }, effDesc: '+1 стрела в каждом залпе' },
+  { id: 'u3', name: 'Клык Дракона', slot: 'weapon', kind: 'heavy', rar: 5, dmg: 1.35,
+    eff: { pierceAdd: 2 }, effDesc: 'Стрелы пробивают +2 врагов' },
+  { id: 'u4', name: 'Сердце Титана', slot: 'armor', rar: 5, hp: 420, regen: 22,
+    eff: { lifesteal: 3 }, effDesc: 'Криты лечат стену на 3 HP' },
+  { id: 'u5', name: 'Взор Ястреба', slot: 'helmet', rar: 5, hp: 190, crit: 0.10,
+    eff: { goldBoost: 0.5 }, effDesc: '+50% золота с врагов' },
+  { id: 'u6', name: 'Перстень Зимы', slot: 'ring', rar: 5, crit: 0.08, dmg: 0.25,
+    eff: { freeze: true }, effDesc: 'Стрелы замораживают врагов' },
+  { id: 'u7', name: 'Плащ Бури', slot: 'shoulders', rar: 5, hp: 160, rate: 1.15,
+    eff: { extraArrow: 1 }, effDesc: '+1 стрела в залпе' },
+  { id: 'u8', name: 'Сапоги Вихря', slot: 'boots', rar: 5, regen: 26, rate: 1.12,
+    eff: { goldBoost: 0.35 }, effDesc: '+35% золота с врагов' },
+  { id: 'u9', name: 'Пояс Кровопийцы', slot: 'belt', rar: 5, dmg: 0.45, hp: 90,
+    eff: { lifesteal: 2 }, effDesc: 'Криты лечат стену на 2 HP' },
+  { id: 'u10', name: 'Амулет Погибели', slot: 'trinket', rar: 5, crit: 0.12, dmg: 0.3,
+    eff: { explode: 0.5 }, effDesc: 'Криты взрываются сильнее (+50% радиуса)' },
+];
+
+// сколько предметов падает и с каким шансом уникальный
+export function rollUnique(day) {
+  // уникальные только с 8-го дня, шанс растёт
+  if (day < 8) return null;
+  const chance = Math.min(0.22, (day - 8) * 0.02);
+  if (Math.random() > chance) return null;
+  const u = UNIQUES[(Math.random() * UNIQUES.length) | 0];
+  return { ...u, uid: Math.random().toString(36).slice(2, 9), unique: true };
 }
 
 // ---------- Инвентарь ----------
@@ -190,7 +263,8 @@ export function createInventory() {
 
 // итоговые бонусы от надетых предметов
 export function equipBonuses(inv) {
-  const b = { dmg: 1, hp: 0, crit: 0, regen: 0, rate: 1 };
+  const b = { dmg: 1, hp: 0, crit: 0, regen: 0, rate: 1,
+    extraArrow: 0, pierceAdd: 0, explodeBonus: 0, goldBoost: 0, lifesteal: 0, freeze: false };
   for (const slot of SLOT_ORDER) {
     const it = inv[slot];
     if (!it) continue;
@@ -199,6 +273,15 @@ export function equipBonuses(inv) {
     if (it.crit) b.crit += it.crit;
     if (it.rate) b.rate *= it.rate;
     if (it.regen) b.regen += it.regen;
+    // особые эффекты уникальных предметов
+    if (it.eff) {
+      if (it.eff.extraArrow) b.extraArrow += it.eff.extraArrow;
+      if (it.eff.pierceAdd) b.pierceAdd += it.eff.pierceAdd;
+      if (it.eff.explode) b.explodeBonus += it.eff.explode;
+      if (it.eff.goldBoost) b.goldBoost += it.eff.goldBoost;
+      if (it.eff.lifesteal) b.lifesteal += it.eff.lifesteal;
+      if (it.eff.freeze) b.freeze = true;
+    }
   }
   return b;
 }

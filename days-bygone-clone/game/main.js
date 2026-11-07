@@ -14,14 +14,17 @@ import * as torchFx from "./fx/small-torch.js?v=4";
 import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg }
   from "./balance.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
-import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=9";
+import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=10";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles, structCost, structCd }
-  from "./structures.js?v=8";
-import { rollItem, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
-  SLOT_ORDER, SLOT_NAMES }
-  from "./loot.js?v=3";
+  from "./structures.js?v=9";
+import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
+  SLOT_ORDER, SLOT_NAMES, UNIQUES }
+  from "./loot.js?v=4";
+import { BOSS_TYPES, bossForDay, isBossDay } from "./bosses.js?v=1";
+import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
+  from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
-  from "./tree.js?v=1";
+  from "./tree.js?v=2";
 
 // ---------- Канвас ----------
 // Мир рисуется в 640×360 — пиксель в 2 раза мельче, детализация выше
@@ -94,6 +97,7 @@ const state = {
   tree: createTreeState(),
   skillPts: 0,
   loot: [],
+  particles: [],
   projectiles: [],
   stats: { kills: 0, daysSurvived: 1, totalGold: 0 },
   time: 0,
@@ -115,9 +119,9 @@ const enemies = [], arrows = [], fxs = [];
 const dmgLvl = () => state.up.dmg;
 const fireRateBaseNow = () => Math.min(BAL.fireRateCap, BAL.fireRateBase + state.up.rate * BAL.fireRatePerLvl);
 const fireRate = () => fireRateBaseNow() * EB().rate;   // перчатки ускоряют стрельбу
-const arrowsPerShot = () => 1 + state.up.multi;
+const arrowsPerShot = () => 1 + state.up.multi + TB().extraArrows + EB().extraArrow;
 const critChance = () => Math.min(BAL.critCap, BAL.critChanceBase + state.up.crit * BAL.critPerLvl);
-const pierce = () => state.up.pierce;
+const pierce = () => state.up.pierce + TB().pierceAdd + EB().pierceAdd;
 
 // ---------- Визуал экипировки на герое ----------
 // цвет материала по редкости: обычное — кожа/дерево, дальше металл, золото, свет
@@ -189,7 +193,7 @@ function drawArrow(p, a) {
 const EB = () => equipBonuses(state.inv);
 const TB = () => treeBonuses(state.tree);
 const totalBowDmg = () => bowDmg(dmgLvl(), state.era) * EB().dmg * TB().bowDmgMult;
-const totalCrit = () => Math.min(0.75, critChance() + EB().crit);
+const totalCrit = () => Math.min(0.85, critChance() + EB().crit + TB().critAdd);
 const maxCastleHp = () => Math.round((BAL.castleHp + TB().castleHpAdd) * TB().castleHpMult);
 
 // ---------- Эффекты ----------
@@ -247,19 +251,25 @@ function spawnEnemy() {
   });
 }
 
-function spawnBoss() {
-  const hp = BAL.enemyHp(state.day, BAL.wavesPerDay) * 14;
+function spawnBoss(forceId) {
+  const b = forceId ? BOSS_TYPES[forceId] : bossForDay(state.day);
+  const hp = Math.round(BAL.enemyHp(state.day, BAL.wavesPerDay) * b.hpMult);
   enemies.push({
-    kind: 'ogre', x: W + 12, y: GROUND,
+    kind: 'boss', bossId: b.id, isBoss: true, bossName: b.name,
+    x: W + 14, y: GROUND,
     hp, maxHp: hp,
-    speed: BAL.enemySpeed(state.day) * 0.55,
+    speed: BAL.enemySpeed(state.day) * b.speedMult,
     walkT: 0,
-    dmg: BAL.enemyDmg(state.day) * 4,
-    gold: BAL.enemyGold(state.day, true),
+    dmg: BAL.enemyDmg(state.day) * b.dmgMult,
+    gold: Math.round(BAL.enemyGold(state.day, true) * (b.goldMult / 12)),
     attacking: false, atkT: 0,
+    armor: b.armor || 0, evade: b.evade || 0,
+    mechanic: b.mechanic, mechT: 3.0, summonT: 4.0,
+    size: b.size,
   });
-  toast('⚠ ОГР ИДЁТ!');
-  state.shakeT = 0.5;
+  toast(`⚠ ${b.title}`);
+  state.shakeT = 0.6;
+  state.bossActive = true;
 }
 
 // ---------- Стрельба ----------
@@ -297,10 +307,29 @@ function shoot() {
 }
 
 // ---------- Урон/смерть/лут ----------
+// уклонение босса-дракончика: часть стрел уходит в молоко
+function enemyEvades(e) {
+  return e.evade > 0 && Math.random() < e.evade;
+}
 function damageEnemy(e, dmg, crit = false) {
+  if (e.dead) return;
+  // бонус урона по боссам (узел «Клеймо охотника»)
+  if (e.isBoss) dmg *= TB().bossDmgMult;
+  // броня босса гасит часть урона
+  if (e.armor) dmg *= (1 - e.armor);
   e.hp -= dmg;
-  hitFx(e.x, e.y - (e.kind === 'ogre' ? 20 : 12), crit, dmg);
+  hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
+  if (crit) state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
+  // вампиризм: криты лечат стену (узел «Вампиризм»)
+  const ls = TB().lifesteal + EB().lifesteal;
+  if (crit && ls > 0) {
+    state.castleHp = Math.min(maxCastleHp(), state.castleHp + ls);
+  }
   // критический взрыв (узел «Разрывная стрела»)
+  if (crit && EB().freeze && !e.isBoss) {
+    e.frozen = 1.4;
+    state.particles.push(...iceBurst(e.x, e.y - 12));
+  }
   if (crit && TB().critAoe) {
     for (const o of enemies) {
       if (o === e || o.dead) continue;
@@ -310,12 +339,16 @@ function damageEnemy(e, dmg, crit = false) {
   }
   if (e.hp <= 0 && !e.dead) {
     e.dead = true;
-    const goldMult = weather.weatherMods(state.weather?.kind ?? 'clear').gold ?? 1;
+    const goldMult = (weather.weatherMods(state.weather?.kind ?? 'clear').gold ?? 1) * TB().goldMult * (1 + EB().goldBoost);
     const g = Math.round(e.gold * goldMult);
     state.gold += g;
     state.stats.kills++;
     state.stats.totalGold += g;
     coinFx(e.x, e.y - 8);
+    // разлёт костей/праха при смерти
+    const kindTag = e.isBoss ? 'boss' : e.kind === 'skeleton' ? 'skeleton' : 'normal';
+    state.particles.push(...deathParticles(e.x, e.y - 6, kindTag, state.stats.kills));
+    if (e.isBoss) { state.shakeT = Math.max(state.shakeT, 0.5); }
     state.hitStop = 0.045;
     maybeDropLoot(e);
     updateHud();
@@ -323,10 +356,14 @@ function damageEnemy(e, dmg, crit = false) {
 }
 
 function maybeDropLoot(e) {
-  const boss = e.kind === 'ogre';
+  const boss = e.isBoss || e.kind === 'boss';
+  // шанс дропа: обычный враг 12%, босс — всегда
   if (!boss && Math.random() > 0.12) return;
-  const item = rollItem(state.day, boss && Math.random() < 0.4);
-  state.loot.push({ x: e.x, y: e.y - 8, item, t: 0 });
+  const rolls = boss ? 2 + TB().bossExtraLoot : 1;
+  for (let i = 0; i < rolls; i++) {
+    const item = rollDrop(state.day, boss && Math.random() < 0.5);
+    state.loot.push({ x: e.x + (i - rolls / 2) * 8, y: e.y - 8, item, t: 0 });
+  }
 }
 
 function updateLoot(dt) {
@@ -802,9 +839,26 @@ function showTip(it, equipped) {
   const tip = document.getElementById('invTip');
   if (!tip || !it) return;
   const r = RAR[it.rar];
+  // сравнение с текущим надетым предметом в том же слоте
+  let cmp = '';
+  if (!equipped) {
+    const cur = state.inv[it.slot];
+    if (cur && cur.uid !== it.uid) {
+      const delta = (a, b) => {
+        const d = Math.round((a - b) * 100) / 100;
+        return d > 0 ? ` <b style="color:#7fc97f">+${d}</b>` : d < 0 ? ` <b style="color:#c94f3d">${d}</b>` : '';
+      };
+      const rows = [];
+      if (it.dmg || cur.dmg) rows.push(`урон${delta((it.dmg||0)*100, (cur.dmg||0)*100)}%`);
+      if (it.hp || cur.hp) rows.push(`HP${delta(it.hp||0, cur.hp||0)}`);
+      if (it.crit || cur.crit) rows.push(`крит${delta((it.crit||0)*100, (cur.crit||0)*100)}%`);
+      if (it.regen || cur.regen) rows.push(`реген${delta(it.regen||0, cur.regen||0)}`);
+      if (rows.length) cmp = `<div class="tcmp">надето: ${cur.name.slice(0, 18)} → ${rows.join(', ')}</div>`;
+    }
+  }
   tip.innerHTML = `<div class="tname" style="color:${r.col}">${it.name}</div>
-    <div class="trar" style="color:${r.col}">${r.name} · ${SLOT_NAMES[it.slot] || it.slot}${equipped ? ' · НАДЕТО' : ''}</div>
-    <div class="tstat">${describeItem(it)}</div>
+    <div class="trar" style="color:${r.col}">${r.name} · ${SLOT_NAMES[it.slot] || it.slot}${equipped ? ' · НАДЕТО' : ''}${it.unique ? ' ★' : ''}</div>
+    <div class="tstat">${describeItem(it)}</div>${cmp}
     <div class="tbtns">
       ${equipped ? '<button class="tbtn" id="tipUnequip">СНЯТЬ</button>'
         : `<button class="tbtn" id="tipEquip">НАДЕТЬ</button>
@@ -950,7 +1004,7 @@ function update(dt) {
         // новый день
         state.day++;
         state.waveInDay = 0;
-        state.skillPts++;
+        state.skillPts += TB().pointsPerDay;
         state.stats.daysSurvived = Math.max(state.stats.daysSurvived, state.day);
         state.castleHp = Math.min(maxCastleHp(),
           state.castleHp + BAL.castleRegenPerDay + EB().regen + TB().regenAdd);
@@ -974,14 +1028,50 @@ function update(dt) {
   const wmod = weather.weatherMods(state.weather.kind);
   for (const e of enemies) {
     e.walkT += dt;
+    // заморозка (узел «Ледяные ядра»): враг ползёт на 40% медленнее
+    let speedMult = 1;
+    if (e.frozen > 0) { e.frozen -= dt; speedMult *= 0.4; }
+    // ---- механики боссов ----
+    if (e.isBoss && !e.dead) {
+      // ярость огра: при <35% HP ускоряется вдвое
+      if (e.mechanic === 'rage' && e.hp < e.maxHp * 0.35) {
+        if (!e.enraged) { e.enraged = true; e.speed *= 2.0; toast('💢 Огр впал в ярость!'); }
+      }
+      // тролль-лекарь: раз в 2.5с восстанавливает 3% HP
+      if (e.mechanic === 'heal') {
+        e.mechT -= dt;
+        if (e.mechT <= 0) {
+          e.mechT = 2.5;
+          const heal = Math.round(e.maxHp * 0.03);
+          if (e.hp < e.maxHp) { e.hp = Math.min(e.maxHp, e.hp + heal); spawnFx(hitFlashFx, { x: Math.round(e.x), y: Math.round(e.y - 26) }); }
+        }
+      }
+      // некромант: призывает скелетов
+      if (e.mechanic === 'summon') {
+        e.summonT -= dt;
+        if (e.summonT <= 0) {
+          e.summonT = 6.0;
+          for (let k = 0; k < 2; k++) {
+            const hp2 = Math.round(BAL.enemyHp(state.day, state.waveInDay) * 0.6);
+            enemies.push({ kind: 'skeleton', x: Math.min(W - 6, e.x + 10 + k * 8), y: GROUND,
+              hp: hp2, maxHp: hp2, speed: BAL.enemySpeed(state.day) * 1.1, walkT: Math.random() * 5,
+              dmg: BAL.enemyDmg(state.day) * 0.7, gold: Math.round(BAL.enemyGold(state.day, false) * 0.3),
+              attacking: false, atkT: 0 });
+          }
+          toast('💀 Некромант призвал скелетов!');
+        }
+      }
+    }
     if (e.x > WALL_X + 4) {
-      e.x -= e.speed * (wmod.enemySpeed ?? 1) * dt;
+      e.x -= e.speed * (wmod.enemySpeed ?? 1) * speedMult * dt;
     } else {
       // атакует стену
       e.atkT -= dt;
       if (e.atkT <= 0) {
         e.atkT = 1.0;
         state.castleHp -= e.dmg;
+        // шипованный вал (узел «Шипованный вал»): враг ранится об стену
+        if (TB().wallThorns > 0) damageEnemy(e, TB().wallThorns, false);
         state.shakeT = 0.25;
         spawnFx(hitFlashFx, { x: WALL_X - 4, y: GROUND - 28 });
         if (state.castleHp <= 0) { state.castleHp = 0; endEra(); }
@@ -1009,6 +1099,7 @@ function update(dt) {
     enemies, projectiles: state.projectiles,
     damageEnemy, spawnFx: ctxSpawn, shake: (v) => { state.shakeT = Math.max(state.shakeT, v); },
     structDmgMult: TB().structDmgMult, structCdMult: TB().structCdMult,
+    structFreeze: TB().structFreeze,
     healCastle: (v) => {
       const before = state.castleHp;
       state.castleHp = Math.min(maxCastleHp(), state.castleHp + v);
@@ -1025,8 +1116,14 @@ function update(dt) {
     let removed = false;
     for (const e of enemies) {
       if (e.dead || a.hitIds.has(e)) continue;
-      const ex = e.x, ey = e.y - (e.kind === 'ogre' ? 18 : 10);
+      const ex = e.x, ey = e.y - (e.isBoss ? 24 : 10);
       if (Math.abs(a.x - ex) < 14 && Math.abs(a.y - ey) < 26) {
+        // дракончик уклоняется — стрела проходит мимо
+        if (enemyEvades(e)) {
+          a.hitIds.add(e);
+          spawnFx(hitFlashFx, { x: Math.round(a.x), y: Math.round(a.y), seed: 3 });
+          continue;
+        }
         damageEnemy(e, a.dmg, a.crit);
         a.hitIds.add(e);
         if (a.pierceLeft > 0) { a.pierceLeft--; a.dmg *= 0.7; }
@@ -1041,6 +1138,7 @@ function update(dt) {
     fxs[i].update(dt);
     if (fxs[i].done()) fxs.splice(i, 1);
   }
+  updateParticles(state.particles, dt);
   if (state.shakeT > 0) state.shakeT -= dt;
 }
 
@@ -1055,6 +1153,7 @@ function render(dt) {
   drawSky(painter, W, H);
   drawSun(painter, W - 124, 60, state.time);
   drawClouds(painter, W, state.time);
+  drawParallax(painter, W, GROUND, state.time, state.time * 6);
   drawGround(painter, W, GROUND);
   drawScenery(painter, W, GROUND, state.time);
   weather.drawWeatherBack(painter, state.weather);          // пелена дождя / туман
@@ -1074,6 +1173,7 @@ function render(dt) {
   frame.ox = -ox; frame.oy = -oy;
 
   for (const e of enemies) drawEnemy(painter, e, state.time);
+  drawParticles(painter, state.particles);
   drawLootDropsSafe(painter);
   // трейл стрел: тающий след позади + золотое свечение крита
   for (const a of arrows) {
@@ -1158,5 +1258,5 @@ function renderTreePtsOnly() {
 }
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
-window.__dbg = { state, enemies, arrows, fxs, weather };
+window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay };
 requestAnimationFrame(tick);

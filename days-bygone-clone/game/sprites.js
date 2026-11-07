@@ -326,7 +326,11 @@ export function drawEnemy(p, e, time = 0) {
     p.put(x, y - 24, 0xfff26a1d);
     p.put(x + 2, y - 34 + fl, 0xffffc23d);
   }
-  if (e.kind === 'ogre') {
+  if (e.kind === 'boss') {
+    drawBoss(p, e, x, y, time, step);
+  } else if (e.kind === 'skeleton') {
+    drawSkeleton(p, e, x, y, time, step);
+  } else if (e.kind === 'ogre') {
     // ноги
     rect(p, x - 10, y - 10, 8, 10, COL.orcD);
     rect(p, x + 4, y - 10, 8, 10, COL.orcD);
@@ -399,13 +403,199 @@ export function drawEnemy(p, e, time = 0) {
     p.put(x + 12 + swing, y - 10 + step, COL.woodD); p.put(x + 13 + swing, y - 10 + step, COL.woodD);
     p.put(x + 10 + swing, y - 9 + step, COL.wood); p.put(x + 15 + swing, y - 9 + step, COL.wood);
   }
-  // полоса HP — тоньше
-  const w = e.kind === 'ogre' ? 32 : 20;
+
+// ---------- БОССЫ: 5 типов, крупные силуэты ----------
+function drawBoss(p, e, x, y, time, walkStep) {
+  const bob = Math.round(Math.sin(time * 3) * 1.5);
+  const enraged = e.enraged;
+  const flash = e.hp < e.maxHp * 0.35 ? (Math.sin(time * 10) > 0 ? 1 : 0) : 0;
+
+  if (e.bossId === 'ogre') {
+    // ОГР-ГРОМИЛА: огромный, с дубиной, ярость = красные глаза
+    // ноги
+    rect(p, x - 13, y - 14, 10, 14, COL.orcD);
+    rect(p, x + 5, y - 14, 10, 14, COL.orcD);
+    p.put(x - 12, y - 13, COL.orc); p.put(x + 6, y - 13, COL.orc);
+    // живот
+    rect(p, x - 16, y - 40 + bob, 34, 28, COL.orc);
+    rect(p, x - 16, y - 40 + bob, 34, 4, COL.orcD);
+    rect(p, x - 8, y - 30 + bob, 16, 14, hex('#6a8a3a'));   // светлый живот
+    p.line(x - 14, y - 22 + bob, x + 16, y - 22 + bob, COL.orcD);
+    // голова
+    rect(p, x - 11, y - 58 + bob, 24, 19, COL.orcD);
+    const eyeCol = enraged ? hex('#ff3b2e') : COL.red;
+    rect(p, x - 6, y - 52 + bob, 6, 5, eyeCol);
+    rect(p, x + 4, y - 52 + bob, 6, 5, eyeCol);
+    p.put(x - 5, y - 51 + bob, 0xfffff07a); p.put(x + 5, y - 51 + bob, 0xfffff07a);
+    // клыки
+    rect(p, x - 5, y - 42 + bob, 2, 5, COL.steel);
+    rect(p, x + 6, y - 42 + bob, 2, 5, COL.steel);
+    // рога
+    p.line(x - 11, y - 58 + bob, x - 15, y - 66 + bob, hex('#c9b991'));
+    p.line(x + 12, y - 58 + bob, x + 16, y - 66 + bob, hex('#c9b991'));
+    // руки
+    rect(p, x - 25, y - 38 + bob - walkStep, 8, 20, COL.orc);
+    rect(p, x + 19, y - 38 + bob + walkStep, 8, 20, COL.orc);
+    // дубина (огромная)
+    const swing = e.atkT > 0 && e.atkT < 0.5 ? 8 : 0;
+    rect(p, x + 22, y - 62 + swing + bob, 5, 36, COL.wood);
+    rect(p, x + 18, y - 70 + swing + bob, 13, 12, COL.woodD);
+    for (const [dx, dy] of [[-1, -3], [8, -2], [3, 6], [-3, 4], [11, 5]]) {
+      p.put(x + 20 + dx, y - 66 + swing + bob + dy, COL.steel);
+    }
+  } else if (e.bossId === 'troll') {
+    // ТРОЛЛЬ-ЛЕКАРЬ: зелёный, с посохом, лечится (зелёные искры)
+    rect(p, x - 10, y - 12, 8, 12, hex('#3a6a2e'));
+    rect(p, x + 3, y - 12, 8, 12, hex('#3a6a2e'));
+    // тело
+    rect(p, x - 13, y - 36 + bob, 28, 25, hex('#4a7a3a'));
+    rect(p, x - 13, y - 36 + bob, 28, 3, hex('#3a6a2e'));
+    // горб
+    p.line(x - 13, y - 34 + bob, x - 18, y - 40 + bob, hex('#4a7a3a'));
+    p.line(x - 18, y - 40 + bob, x - 12, y - 44 + bob, hex('#5a8a4a'));
+    // голова с ушами
+    rect(p, x - 8, y - 50 + bob, 18, 15, hex('#5a8a4a'));
+    p.line(x - 8, y - 48 + bob, x - 14, y - 52 + bob, hex('#5a8a4a'));
+    p.line(x + 9, y - 48 + bob, x + 15, y - 52 + bob, hex('#5a8a4a'));
+    // глаза (жёлтые, светятся)
+    rect(p, x - 4, y - 45 + bob, 4, 3, hex('#f2e94a'));
+    rect(p, x + 4, y - 45 + bob, 4, 3, hex('#f2e94a'));
+    // нос и рот
+    p.put(x + 1, y - 41 + bob, hex('#3a6a2e'));
+    p.line(x - 3, y - 38 + bob, x + 6, y - 38 + bob, hex('#2a4a1e'));
+    // посох с зелёным кристаллом
+    rect(p, x + 17, y - 56 + bob, 2, 44, COL.wood);
+    const glow = 0.5 + 0.5 * Math.sin(time * 4);
+    p.dot(x + 18, y - 58 + bob, hex('#7ff09a'), glow);
+    p.dot(x + 18, y - 60 + bob, hex('#a8f0b8'), glow * 0.7);
+    // целительные искры при лечении
+    if (e.mechT !== undefined && e.mechT > 2.0) {
+      for (let i = 0; i < 4; i++) {
+        const a = i * 1.6 + time * 2;
+        p.dot(x + Math.round(Math.cos(a) * 12), y - 30 + Math.round(Math.sin(a) * 10), hex('#7ff09a'), 0.8);
+      }
+    }
+  } else if (e.bossId === 'necro') {
+    // НЕКРОМАНТ: тёмный балахон, череп, светящиеся руки, призывает скелетов
+    // балахон (конус)
+    for (let i = 0; i < 30; i++) {
+      const w = Math.round(14 * (1 - i / 30));
+      const yy = y - 30 + i;
+      for (let dx = -w; dx <= w; dx++) p.put(x + dx, yy, i % 5 === 0 ? hex('#2a1a3a') : hex('#3a2a4a'));
+    }
+    // капюшон
+    rect(p, x - 9, y - 52 + bob, 19, 24, hex('#2a1a3a'));
+    for (let dx = -9; dx <= 9; dx++) p.put(x + dx, y - 52 + bob, hex('#4a3a5a'));
+    // лицо-череп во тьме
+    rect(p, x - 6, y - 46 + bob, 13, 12, hex('#c9c2b0'));
+    rect(p, x - 4, y - 43 + bob, 3, 4, hex('#1a0a1a'));
+    rect(p, x + 4, y - 43 + bob, 3, 4, hex('#1a0a1a'));
+    p.put(x - 3, y - 42 + bob, hex('#c94fff'));      // фиолетовый огонь в глазах
+    p.put(x + 5, y - 42 + bob, hex('#c94fff'));
+    p.line(x - 3, y - 37 + bob, x + 5, y - 37 + bob, hex('#8a7a6a'));   // зубы
+    p.put(x, y - 39 + bob, hex('#6a5a4a'));
+    // руки с магией
+    const mg = 0.5 + 0.5 * Math.sin(time * 3.5);
+    p.dot(x - 14, y - 30 + bob, hex('#c94fff'), mg);
+    p.dot(x + 14, y - 30 + bob, hex('#c94fff'), mg);
+    p.dot(x - 16, y - 32 + bob, hex('#e8a0ff'), mg * 0.6);
+    // посох с черепом
+    rect(p, x + 17, y - 54 + bob, 2, 40, hex('#3a2a1a'));
+    rect(p, x + 15, y - 60 + bob, 7, 8, hex('#c9c2b0'));
+    p.put(x + 17, y - 57 + bob, hex('#c94fff')); p.put(x + 20, y - 57 + bob, hex('#c94fff'));
+  } else if (e.bossId === 'warlord') {
+    // ВОЕНАЧАЛЬНИК: тяжёлая броня, шлем с рогами, огромный топор
+    rect(p, x - 11, y - 14, 9, 14, hex('#5a5a66'));
+    rect(p, x + 3, y - 14, 9, 14, hex('#5a5a66'));
+    // торс в броне
+    rect(p, x - 15, y - 42 + bob, 31, 29, hex('#7a7a8a'));
+    rect(p, x - 15, y - 42 + bob, 31, 3, hex('#9a9aaa'));
+    // наплечники с шипами
+    rect(p, x - 21, y - 42 + bob, 8, 9, hex('#8a8a9a'));
+    rect(p, x + 14, y - 42 + bob, 8, 9, hex('#8a8a9a'));
+    p.put(x - 21, y - 44 + bob, COL.steel); p.put(x + 20, y - 44 + bob, COL.steel);
+    // нагрудник с гербом
+    rect(p, x - 8, y - 36 + bob, 17, 15, hex('#5a5a6a'));
+    rect(p, x - 2, y - 33 + bob, 5, 9, hex('#c93d2a'));
+    p.put(x, y - 30 + bob, COL.gold);
+    // шлем с рогами и забралом
+    rect(p, x - 9, y - 58 + bob, 19, 18, hex('#5a5a6a'));
+    rect(p, x - 9, y - 58 + bob, 19, 2, hex('#9a9aaa'));
+    rect(p, x - 6, y - 52 + bob, 13, 3, hex('#1a1a22'));
+    p.line(x - 9, y - 58 + bob, x - 16, y - 68 + bob, hex('#c9b991'));
+    p.line(x + 10, y - 58 + bob, x + 17, y - 68 + bob, hex('#c9b991'));
+    // плащ
+    for (let i = 0; i < 22; i++) p.put(x - 17 - (i % 3), y - 40 + bob + i, hex('#8a2a1a'));
+    // топор
+    const sw = e.atkT > 0 && e.atkT < 0.5 ? 10 : 0;
+    rect(p, x + 20, y - 58 + sw + bob, 3, 42, COL.wood);
+    rect(p, x + 14, y - 66 + sw + bob, 16, 11, hex('#b0b0c0'));
+    p.put(x + 14, y - 68 + sw + bob, COL.steel);
+    p.put(x + 29, y - 60 + sw + bob, COL.steel);
+  } else if (e.bossId === 'dragonling') {
+    // ДРАКОНЧИК: парит над землёй, крылья машут, дышит огнём
+    const hover = Math.round(Math.sin(time * 2.5) * 3);
+    const yy = y + hover - 6;
+    // крылья (машут)
+    const wing = Math.sin(time * 6) * 5;
+    for (let i = 0; i < 14; i++) {
+      p.put(x - 14 - i, yy - 30 - Math.round(wing * (i / 14)), hex('#8a2a1a'));
+      p.put(x - 14 - i, yy - 29 - Math.round(wing * (i / 14)), hex('#a03a20'));
+      p.put(x + 16 + i, yy - 30 - Math.round(wing * (i / 14)), hex('#8a2a1a'));
+      p.put(x + 16 + i, yy - 29 - Math.round(wing * (i / 14)), hex('#a03a20'));
+    }
+    // тело
+    rect(p, x - 12, yy - 26, 25, 18, hex('#a03a20'));
+    rect(p, x - 12, yy - 26, 25, 3, hex('#c94f2a'));
+    // брюхо
+    rect(p, x - 6, yy - 18, 13, 8, hex('#e8a06a'));
+    // голова с пастью
+    rect(p, x + 8, yy - 36, 16, 13, hex('#c94f2a'));
+    rect(p, x + 9, yy - 26, 14, 4, hex('#8a2a1a'));      // пасть
+    p.put(x + 12, yy - 27, COL.steel); p.put(x + 16, yy - 27, COL.steel);  // зубы
+    p.put(x + 14, yy - 32, hex('#ffe08a'));              // глаз
+    p.line(x + 10, yy - 38, x + 14, yy - 42, hex('#c9b991'));  // рог
+    // хвост
+    for (let i = 0; i < 12; i++) p.put(x - 13 - i, yy - 20 + Math.round(Math.sin(time * 3 + i * 0.4) * 2), hex('#8a2a1a'));
+    // огонь из пасти при атаке
+    if (e.atkT > 0 && e.atkT < 0.6) {
+      for (let i = 0; i < 8; i++) {
+        p.dot(x + 22 + i * 2, yy - 25 + Math.round(Math.sin(time * 20 + i) * 2), i < 4 ? hex('#fff3a6') : hex('#f2561d'), 1 - i / 10);
+      }
+    }
+  }
+}
+
+// скелеты (призыв некроманта)
+function drawSkeleton(p, e, x, y, time, step) {
+  rect(p, x - 3, y - 7, 2, 7, hex('#c9c2b0'));
+  rect(p, x + 2, y - 7, 2, 7, hex('#c9c2b0'));
+  // рёбра
+  rect(p, x - 5, y - 20 + step, 11, 13, hex('#c9c2b0'));
+  for (let i = 0; i < 4; i++) p.line(x - 4, y - 18 + step + i * 3, x + 5, y - 18 + step + i * 3, hex('#8a8378'));
+  // череп
+  rect(p, x - 4, y - 28 + step, 9, 8, hex('#e8e2d0'));
+  p.put(x - 3, y - 25 + step, hex('#1a1a1a')); p.put(x + 2, y - 25 + step, hex('#1a1a1a'));
+  // копьё
+  rect(p, x + 8, y - 26, 1, 26, hex('#6a5a4a'));
+  p.put(x + 8, y - 28, hex('#a0a0b0'));
+}
+
+  // полоса HP: у боссов шире, с рамкой и делениями
+  const w = e.isBoss ? 56 : e.kind === 'ogre' ? 32 : 20;
   const frac = Math.max(0, e.hp / e.maxHp);
-  const hy = y - (e.kind === 'ogre' ? 52 : 42);
-  rect(p, x - (w >> 1) - 1, hy - 1, w + 2, 5, COL.hpBarBg);
-  rect(p, x - (w >> 1), hy, Math.max(1, Math.round(w * frac)), 3,
-    frac > 0.5 ? COL.hpGreen : frac > 0.25 ? COL.hpYellow : COL.red);
+  const hy = y - (e.isBoss ? 78 : e.kind === 'ogre' ? 52 : 42);
+  rect(p, x - (w >> 1) - 1, hy - 1, w + 2, e.isBoss ? 7 : 5, COL.hpBarBg);
+  const fillCol = frac > 0.5 ? COL.hpGreen : frac > 0.25 ? COL.hpYellow : COL.red;
+  rect(p, x - (w >> 1), hy, Math.max(1, Math.round(w * frac)), e.isBoss ? 5 : 3, fillCol);
+  if (e.isBoss) {
+    // деления на 4 части + блик
+    for (let i = 1; i < 4; i++) p.put(x - (w >> 1) + Math.round(w * i / 4), hy, COL.dark);
+    for (let i = 0; i < Math.round(w * frac); i += 2) p.put(x - (w >> 1) + i, hy, 0xffffffff > 0 ? COL.steel : COL.steel, 0.25);
+    // корона над полосой = это босс
+    p.put(x - 2, hy - 3, COL.gold); p.put(x + 1, hy - 3, COL.gold);
+    p.put(x, hy - 4, COL.gold);
+  }
 }
 
 // ---------- Ландшафт: деревья, кусты, птицы (анимированные, мелкий пиксель) ----------
