@@ -49,6 +49,7 @@ export function initAudio() {
     sfxBus.connect(master);
 
     started = true;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     stats.ctxState = ctx.state;
   } catch (e) { ctx = null; }
 }
@@ -352,6 +353,18 @@ export function toggleSfx() {
   if (ctx) sfxBus.gain.value = sfxOn ? 0.5 : 0;
   save();
   return sfxOn;
+}
+
+// Разблокировка звука по первому реальному жесту: браузеры (и Android WebView)
+// создают AudioContext в состоянии suspended и требуют жест пользователя.
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (ctx.state === 'running' && musicOn && !music.playing) musicStart(music.scene);
+  };
+  ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((ev) =>
+    window.addEventListener(ev, unlock, { passive: true }));
 }
 
 // приостановка при уходе со страницы (экономия батареи на телефоне)
