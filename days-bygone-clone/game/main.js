@@ -21,6 +21,8 @@ import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equip
   SLOT_ORDER, SLOT_NAMES, UNIQUES }
   from "./loot.js?v=4";
 import { BOSS_TYPES, bossForDay, isBossDay } from "./bosses.js?v=1";
+import { initAudio, sfx, musicStart, musicStop, musicScene, toggleMusic, toggleSfx,
+         isMusicOn, isSfxOn, audioState } from "./audio.js?v=1";
 import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
   from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
@@ -257,6 +259,7 @@ function spawnFx(mod, opts) {
   fxs.push(createFx(mod, opts));
 }
 function coinFx(x, y) {
+  sfx('coin');
   spawnFx(coinDropFx, { x: Math.round(x), y: Math.round(y), seed: (Math.random() * 1e9) | 0 });
 }
 function hitFx(x, y, crit, dmg) {
@@ -323,6 +326,7 @@ function spawnBoss(forceId) {
     mechanic: b.mechanic, mechT: 3.0, summonT: 4.0,
     size: b.size,
   });
+  sfx('boss');
   toast(`⚠ ${b.title}`);
   state.shakeT = 0.6;
   state.bossActive = true;
@@ -356,6 +360,7 @@ function fireVolley() {
       state.shakeT = Math.max(state.shakeT, 0.15);
     }, wave * 350);
   }
+  sfx('volley');
   toast('🏹 ЗАЛП!');
 }
 
@@ -389,6 +394,7 @@ function shoot() {
     });
   }
   state.firing = true;
+  sfx('shot');
 }
 
 // ---------- Урон/смерть/лут ----------
@@ -423,6 +429,7 @@ function damageEnemy(e, dmg, crit = false) {
   e.hp -= dmg;
   e.hitT = 0.12;
   hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
+  sfx(crit ? 'crit' : 'hit');
   if (crit) state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
   // вампиризм: криты лечат стену (узел «Вампиризм»)
   const ls = TB().lifesteal + EB().lifesteal;
@@ -449,6 +456,7 @@ function damageEnemy(e, dmg, crit = false) {
     state.stats.kills++;
     state.stats.totalGold += g;
     coinFx(e.x, e.y - 8);
+    sfx(e.isBoss ? 'bossKill' : 'kill');
     // разлёт костей/праха при смерти
     const kindTag = e.isBoss ? 'boss' : e.kind === 'skeleton' ? 'skeleton' : 'normal';
     state.particles.push(...deathParticles(e.x, e.y - 6, kindTag, state.stats.kills));
@@ -479,6 +487,7 @@ function updateLoot(dt) {
       state.inv.bag.push(d.item);
       state.loot.splice(i, 1);
       spawnFx(hitFlashFx, { x: Math.round(d.x), y: Math.round(d.y) });
+      sfx('loot');
       toast(`🎁 ${d.item.name} — ${describeItem(d.item)}`);
       renderInventory();
     }
@@ -488,6 +497,8 @@ function updateLoot(dt) {
 // ---------- Эпоха ----------
 function endEra() {
   state.running = false;
+  sfx('gameover');
+  musicStop();
   saveGame();
   const isRecord = bumpRecords();
   const r = loadRecords();
@@ -523,6 +534,8 @@ function newEra() {
   document.getElementById('eraScreen').style.display = 'none';
   state.running = true;
   buildShop(); updateHud();
+  sfx('era');
+  musicStart('calm');
   toast(`Эпоха ${state.era}: лук унаследовал силу ×${legacy.startDmgMult.toFixed(1)}`);
 }
 
@@ -556,6 +569,7 @@ function buy(def) {
   if (maxed || state.gold < cost) return;
   state.gold -= cost;
   state.up[def.key]++;
+  sfx('buy');
   renderShop(); updateHud();
 }
 
@@ -593,6 +607,7 @@ function buyStruct(def) {
   if (state.gold < cost) return;
   state.gold -= cost;
   s.lvl++;
+  sfx('build');
   toast(s.lvl === 1 ? `🏗 ${def.name} построено!` : `${def.name} улучшено до ур. ${s.lvl}`);
   renderStructShop(); updateHud();
 }
@@ -801,6 +816,7 @@ function equipItem(it) {
   if (idx >= 0) state.inv.bag.splice(idx, 1);
   if (old) state.inv.bag.push(old);
   state.inv[it.slot] = it;
+  sfx('equip');
   renderInventory(); updateHud();
   saveGame();
 }
@@ -1035,6 +1051,7 @@ function buyNode(node) {
   if (!nodeAvailable(node, state.tree) || state.skillPts < node.cost) return;
   state.skillPts -= node.cost;
   state.tree[node.id] = true;
+  sfx('skill');
   toast(`✨ Навык «${node.name}» изучен!`);
   renderTree(); updateHud();
 }
@@ -1154,6 +1171,7 @@ function update(dt) {
         renderTree();
         state.waveTimer = BAL.waveBreakSec;
       } else {
+        sfx('wave');
         startWave();
         state.waveTimer = BAL.waveBreakSec;
       }
@@ -1208,6 +1226,7 @@ function update(dt) {
       if (e.atkT <= 0) {
         e.atkT = 1.0;
         state.castleHp -= e.dmg;
+        sfx('hurt');
         // шипованный вал (узел «Шипованный вал»): враг ранится об стену
         if (TB().wallThorns > 0) damageEnemy(e, TB().wallThorns, false);
         state.shakeT = 0.25;
@@ -1279,6 +1298,15 @@ function update(dt) {
     if (fxs[i].done()) fxs.splice(i, 1);
   }
   updateParticles(state.particles, dt);
+
+  // ---- динамическая музыка: спокойно → бой → босс ----
+  if (state.running) {
+    const hasBoss = enemies.some(e => e.isBoss && !e.dead);
+    const inBattle = enemies.length > 0;
+    if (hasBoss) musicScene('boss');
+    else if (inBattle) musicScene('battle');
+    else musicScene('calm');
+  }
   if (state.volleyCd > 0) {
     state.volleyCd -= dt;
     updateVolleyBtn();
@@ -1350,12 +1378,14 @@ function render(dt) {
 // ---------- Запуск ----------
 function beginSiege() {
   if (state.running) return;
+  initAudio();                       // можно только по жесту пользователя
   const ss = document.getElementById('startScreen');
   if (ss) ss.style.display = 'none';
   const restored = loadGame();
   state.running = true;
   state.castleHp = maxCastleHp(); // полный HP на старте сессии
   buildShop(); buildTree(); buildInventoryUI(); buildStructShop(); updateHud();
+  musicStart('battle');
   toast(restored ? `💾 Осада продолжена: день ${state.day}` : 'Волна приближается с востока!');
 }
 function showStartRecords() {
@@ -1375,11 +1405,13 @@ startBtnEl.addEventListener('click', beginSiege);
 document.getElementById('eraBtn').addEventListener('click', newEra);
 document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
 function openTree() {
+  sfx('ui');
   saveGame();
   renderTree();
   document.getElementById('treeModal').style.display = 'flex';
 }
 function openInv() {
+  sfx('ui');
   saveGame();
   renderInventory();
   document.getElementById('invModal').style.display = 'flex';
@@ -1401,6 +1433,33 @@ function bindTap(el, fn) {
   el.addEventListener('click', go);
 }
 bindTap(document.getElementById('volleyBtn'), fireVolley);
+
+// ---- кнопки звука ----
+function updateAudioBtns() {
+  const m = document.getElementById('musicBtn');
+  const s = document.getElementById('sfxBtn');
+  if (m) {
+    m.innerHTML = (isMusicOn() ? '🎵' : '🔇') + '<span class="lbl"> Музыка</span>';
+    m.classList.toggle('off', !isMusicOn());
+  }
+  if (s) {
+    s.innerHTML = (isSfxOn() ? '🔊' : '🔈') + '<span class="lbl"> Звук</span>';
+    s.classList.toggle('off', !isSfxOn());
+  }
+}
+bindTap(document.getElementById('musicBtn'), () => {
+  initAudio();
+  toggleMusic();
+  updateAudioBtns();
+  if (isSfxOn()) sfx('ui');
+});
+bindTap(document.getElementById('sfxBtn'), () => {
+  initAudio();
+  const on = toggleSfx();
+  updateAudioBtns();
+  if (on) sfx('ui');
+});
+updateAudioBtns();
 
 // состояние кнопки залпа
 function updateVolleyBtn() {
@@ -1433,5 +1492,5 @@ function renderTreePtsOnly() {
 }
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
-window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay };
+window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene };
 requestAnimationFrame(tick);
