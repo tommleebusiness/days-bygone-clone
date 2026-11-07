@@ -112,7 +112,63 @@ const state = {
   bossPending: false,
   hitStop: 0,
   shakeT: 0,
+  volleyCd: 0,       // кулдаун «Залпа»
+  VOLLEY_CD: 25,     // секунд
 };
+
+// ---------- СОХРАНЕНИЕ ПРОГРЕССА (localStorage) ----------
+const SAVE_KEY = 'dbs_save_v1';
+function saveGame() {
+  try {
+    const d = {
+      v: 1, era: state.era, gold: Math.round(state.gold), day: state.day,
+      waveInDay: state.waveInDay, castleHp: state.castleHp,
+      up: state.up, structs: state.structs, inv: state.inv,
+      tree: state.tree, skillPts: state.skillPts,
+      stats: state.stats, aim: state.aim,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(d));
+  } catch (e) { /* приватный режим — играем без сейва */ }
+}
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d.v !== 1) return false;
+    state.era = d.era | 0; state.gold = d.gold | 0;
+    state.day = d.day || 1; state.waveInDay = d.waveInDay | 0;
+    state.up = Object.assign(state.up, d.up || {});
+    if (d.structs) state.structs = d.structs;
+    if (d.inv) state.inv = d.inv;
+    if (d.tree) state.tree = d.tree;
+    state.skillPts = d.skillPts | 0;
+    state.castleHp = Math.min(d.castleHp || maxCastleHp(), maxCastleHp());
+    state.stats = Object.assign(state.stats, d.stats || {});
+    if (typeof d.aim === 'number') state.aim = d.aim;
+    return true;
+  } catch (e) { return false; }
+}
+function wipeSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+// ---------- РЕКОРДЫ (живут между эпохами) ----------
+const REC_KEY = 'dbs_records_v1';
+function loadRecords() {
+  try { return JSON.parse(localStorage.getItem(REC_KEY)) || { bestDay: 0, bestKills: 0, bestGold: 0, eras: 0 }; }
+  catch (e) { return { bestDay: 0, bestKills: 0, bestGold: 0, eras: 0 }; }
+}
+function bumpRecords() {
+  const r = loadRecords();
+  let newRec = false;
+  if (state.stats.daysSurvived > r.bestDay) { r.bestDay = state.stats.daysSurvived; newRec = true; }
+  if (state.stats.kills > r.bestKills) { r.bestKills = state.stats.kills; newRec = true; }
+  if (state.stats.totalGold > r.bestGold) { r.bestGold = Math.round(state.stats.totalGold); newRec = true; }
+  try { localStorage.setItem(REC_KEY, JSON.stringify(r)); } catch (e) {}
+  return newRec;
+}
+
+// автосейв каждые 20с
+setInterval(() => { if (state.running) saveGame(); }, 20000);
+window.addEventListener('pagehide', () => { if (state.running) saveGame(); });
 
 const enemies = [], arrows = [], fxs = [];
 
@@ -274,6 +330,35 @@ function spawnBoss(forceId) {
 
 // ---------- Стрельба ----------
 const ARROW_G = 120;
+// АКТИВНАЯ СПОСОБНОСТЬ «ЗАЛП»: 3 волны стрел веером по всем врагам
+function fireVolley() {
+  if (!state.running || state.volleyCd > 0) return;
+  state.volleyCd = state.VOLLEY_CD;
+  const targets = enemies.filter(e => !e.dead && e.x > WALL_X - 10);
+  if (!targets.length) { toast('Некуда стрелять!'); return; }
+  for (let wave = 0; wave < 3; wave++) {
+    setTimeout(() => {
+      if (!state.running) return;
+      for (const e of targets) {
+        if (e.dead) continue;
+        const crit = Math.random() < totalCrit() * 1.4;
+        const dmg = totalBowDmg() * 0.8 * (crit ? 2.5 : 1) * TB().bossDmgMult * (e.armor ? (1 - e.armor) : 1);
+        state.firing = true;
+        arrows.push({
+          x: BOW.x, y: BOW.y,
+          vx: Math.cos(state.aim) * BAL.arrowSpeed * 0.9,
+          vy: Math.sin(state.aim) * BAL.arrowSpeed * 0.9,
+          dmg: 0, crit,            // прямой урон ниже; стрелы летят для визуала
+          pierceLeft: 0, hitIds: new Set(),
+          kind: weaponKind(), volley: { target: e, dmg },
+        });
+      }
+      state.shakeT = Math.max(state.shakeT, 0.15);
+    }, wave * 350);
+  }
+  toast('🏹 ЗАЛП!');
+}
+
 function shoot() {
   const n = arrowsPerShot();
   // цель — ближайший враг перед стеной
@@ -308,6 +393,24 @@ function shoot() {
 
 // ---------- Урон/смерть/лут ----------
 // уклонение босса-дракончика: часть стрел уходит в молоко
+// залповые стрелы наносят урон при подлёте к цели (визуальный полёт)
+function volleyTick(a, dt) {
+  if (!a.volley) return false;
+  const t = a.volley.target;
+  if (!t || t.dead) { a.dead = true; return true; }
+  const dx = t.x - a.x, dy = (t.y - 10) - a.y;
+  if (dx * dx + dy * dy < 144) {
+    damageEnemy(t, a.volley.dmg, a.crit);
+    a.dead = true;
+    return true;
+  }
+  // доводка по цели
+  const sp = Math.hypot(a.vx, a.vy);
+  const d = Math.hypot(dx, dy) || 1;
+  a.vx = dx / d * sp; a.vy = dy / d * sp;
+  return false;
+}
+
 function enemyEvades(e) {
   return e.evade > 0 && Math.random() < e.evade;
 }
@@ -384,14 +487,23 @@ function updateLoot(dt) {
 // ---------- Эпоха ----------
 function endEra() {
   state.running = false;
-  document.getElementById('eraStats').textContent =
-    `Дней пережито: ${state.stats.daysSurvived} · Врагов повержено: ${state.stats.kills} ·` +
-    ` Золота добыто: ${fmt(state.stats.totalGold)} · Эпоха: ${state.era}`;
+  saveGame();
+  const isRecord = bumpRecords();
+  const r = loadRecords();
+  document.getElementById('eraStats').innerHTML =
+    `Дней пережито: <b>${state.stats.daysSurvived}</b> · Врагов повержено: <b>${state.stats.kills}</b> ·` +
+    ` Золота добыто: <b>${fmt(state.stats.totalGold)}</b> · Эпоха: <b>${state.era}</b>` +
+    (isRecord ? '<br><span class="newrec">🏆 НОВЫЙ РЕКОРД!</span>' : '') +
+    `<br><span class="recsum">Рекорды: день <b>${r.bestDay}</b> · убийств <b>${r.bestKills}</b> · золота <b>${fmt(r.bestGold)}</b></span>`;
   document.getElementById('eraScreen').style.display = 'flex';
 }
 
 function newEra() {
   state.era++;
+  const rec = loadRecords(); rec.eras = state.era;
+  try { localStorage.setItem(REC_KEY, JSON.stringify(rec)); } catch (e) {}
+  wipeSave();
+  state.volleyCd = 0;
   const legacy = BAL.eraLegacy(state.era);
   state.gold = legacy.startGold;
   state.day = 1; state.waveInDay = 0;
@@ -637,9 +749,13 @@ function buildInventoryUI() {
         </div>
       </div>
     </div>
-    <button class="btn" id="invClose">ЗАКРЫТЬ</button>
+    <div class="invBtnRow">
+      <button class="btn btnSm" id="invSellJunk">🔥 ПРОДАТЬ МУСОР</button>
+      <button class="btn" id="invClose">ЗАКРЫТЬ</button>
+    </div>
   </div>`;
   bindTap(document.getElementById('invClose'), () => modal.style.display = 'none');
+  bindTap(document.getElementById('invSellJunk'), sellJunk);
   document.querySelectorAll('.d2slot').forEach(el => {
     el.addEventListener('pointerdown', () => unequipSlot(el.dataset.slot));
     el.addEventListener('pointerenter', () => {
@@ -648,6 +764,23 @@ function buildInventoryUI() {
     });
   });
   renderInventory();
+}
+
+// продать всё серое и зелёное (не уникальное) — одна кнопка
+function sellJunk() {
+  const junk = state.inv.bag.filter(it => it.rar <= 1 && !it.unique);
+  if (!junk.length) { toast('Мусора нет — сумка чиста!'); return; }
+  let sum = 0;
+  for (const it of junk) {
+    sum += itemSellPrice(it);
+    state.inv.bag.splice(state.inv.bag.indexOf(it), 1);
+  }
+  state.gold += sum;
+  state.stats.totalGold += sum;
+  selItem = null;
+  renderInventory(); updateHud();
+  toast(`🔥 Продано ${junk.length} шт. за ${sum} 🪙`);
+  saveGame();
 }
 
 // снять предмет со слота (в сумку)
@@ -668,6 +801,7 @@ function equipItem(it) {
   if (old) state.inv.bag.push(old);
   state.inv[it.slot] = it;
   renderInventory(); updateHud();
+  saveGame();
 }
 
 function sellItem(it) {
@@ -677,6 +811,7 @@ function sellItem(it) {
   state.gold += itemSellPrice(it);
   state.stats.totalGold += itemSellPrice(it);
   renderInventory(); updateHud();
+  saveGame();
 }
 
 // эскиз героя на «кукле» (пиксельный лучник в полный рост)
@@ -1005,6 +1140,7 @@ function update(dt) {
         state.day++;
         state.waveInDay = 0;
         state.skillPts += TB().pointsPerDay;
+        saveGame();
         state.stats.daysSurvived = Math.max(state.stats.daysSurvived, state.day);
         state.castleHp = Math.min(maxCastleHp(),
           state.castleHp + BAL.castleRegenPerDay + EB().regen + TB().regenAdd);
@@ -1114,6 +1250,8 @@ function update(dt) {
     a.x += a.vx * dt; a.y += a.vy * dt;
     a.vy += ARROW_G * dt;
     let removed = false;
+    // залповые стрелы: самонаводящиеся, урон при подлёте
+    if (volleyTick(a, dt)) { arrows.splice(i, 1); continue; }
     for (const e of enemies) {
       if (e.dead || a.hitIds.has(e)) continue;
       const ex = e.x, ey = e.y - (e.isBoss ? 24 : 10);
@@ -1139,6 +1277,10 @@ function update(dt) {
     if (fxs[i].done()) fxs.splice(i, 1);
   }
   updateParticles(state.particles, dt);
+  if (state.volleyCd > 0) {
+    state.volleyCd -= dt;
+    updateVolleyBtn();
+  }
   if (state.shakeT > 0) state.shakeT -= dt;
 }
 
@@ -1208,10 +1350,22 @@ function beginSiege() {
   if (state.running) return;
   const ss = document.getElementById('startScreen');
   if (ss) ss.style.display = 'none';
+  const restored = loadGame();
   state.running = true;
-  buildShop(); updateHud();
-  toast('Волна приближается с востока!');
+  state.castleHp = maxCastleHp(); // полный HP на старте сессии
+  buildShop(); buildTree(); buildInventoryUI(); buildStructShop(); updateHud();
+  toast(restored ? `💾 Осада продолжена: день ${state.day}` : 'Волна приближается с востока!');
 }
+function showStartRecords() {
+  const el = document.getElementById('recStart');
+  if (!el) return;
+  const r = loadRecords();
+  el.innerHTML = r.bestDay > 0
+    ? `🏆 Рекорды: день <b>${r.bestDay}</b> · убийств <b>${r.bestKills}</b> · эпох пройдено <b>${r.eras}</b>`
+    : 'Первая осада — установи свой первый рекорд!';
+}
+showStartRecords();
+
 const startBtnEl = document.getElementById('startBtn');
 // pointerdown срабатывает и на тач-экранах Android, и мышью
 startBtnEl.addEventListener('pointerdown', (e) => { e.preventDefault(); beginSiege(); });
@@ -1219,10 +1373,12 @@ startBtnEl.addEventListener('click', beginSiege);
 document.getElementById('eraBtn').addEventListener('click', newEra);
 document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
 function openTree() {
+  saveGame();
   renderTree();
   document.getElementById('treeModal').style.display = 'flex';
 }
 function openInv() {
+  saveGame();
   renderInventory();
   document.getElementById('invModal').style.display = 'flex';
   setTimeout(fitInvPanel, 0);
@@ -1242,6 +1398,23 @@ function bindTap(el, fn) {
   el.addEventListener('pointerdown', go);
   el.addEventListener('click', go);
 }
+bindTap(document.getElementById('volleyBtn'), fireVolley);
+
+// состояние кнопки залпа
+function updateVolleyBtn() {
+  const el = document.getElementById('volleyBtn');
+  if (!el) return;
+  const cd = Math.max(0, state.volleyCd);
+  const cdEl = document.getElementById('volleyCd');
+  if (cd > 0) {
+    el.classList.add('cool'); el.classList.remove('ready');
+    if (cdEl) cdEl.textContent = Math.ceil(cd);
+  } else {
+    el.classList.remove('cool'); el.classList.add('ready');
+    if (cdEl) cdEl.textContent = '';
+  }
+}
+
 bindTap(document.getElementById('treeBtn'), openTree);
 bindTap(document.getElementById('invBtn'), openInv);
 // счётчик очков навыков в HUD
