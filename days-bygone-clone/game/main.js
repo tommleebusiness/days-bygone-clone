@@ -22,7 +22,7 @@ import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equip
   from "./loot.js?v=4";
 import { BOSS_TYPES, bossForDay, isBossDay } from "./bosses.js?v=1";
 import { initAudio, sfx, musicStart, musicStop, musicScene, toggleMusic, toggleSfx,
-         isMusicOn, isSfxOn, audioState } from "./audio.js?v=2";
+         isMusicOn, isSfxOn, audioState } from "./audio.js?v=3";
 import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
   from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }

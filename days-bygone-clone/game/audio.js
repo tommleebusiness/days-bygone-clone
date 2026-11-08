@@ -9,13 +9,13 @@
 //
 // Настройки (вкл/выкл) сохраняются в localStorage.
 
-const LS_KEY = 'dbs_audio_v1';
+const LS_KEY = 'dbs_audio_v2';
 
 let ctx = null;
 let master = null, musicBus = null, sfxBus = null;
 let started = false;
 
-let musicOn = true, sfxOn = true;
+let musicOn = false, sfxOn = true;
 try {
   const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
   if (typeof s.music === 'boolean') musicOn = s.music;
@@ -317,7 +317,8 @@ function pump() {
 }
 
 export function musicStart(scene = 'calm') {
-  if (!ctx || !musicOn) return;
+  // музыка выключена по умолчанию: запускаем только по явному включению
+  if (!ctx || !musicOn) { music.scene = scene; return; }
   if (music.playing && music.scene === scene) return;
   music.scene = scene;
   music.step = 0;
@@ -361,7 +362,7 @@ if (typeof window !== 'undefined') {
   const unlock = () => {
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    if (ctx.state === 'running' && musicOn && !music.playing) musicStart(music.scene);
+    // музыку не запускаем автоматически — только по кнопке
   };
   ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((ev) =>
     window.addEventListener(ev, unlock, { passive: true }));
