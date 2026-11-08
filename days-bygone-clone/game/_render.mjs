@@ -41,7 +41,7 @@ sprites.drawSky(p, W, H);
 sprites.drawSun(p, W - 124, 60, t);
 sprites.drawClouds(p, W, t);
 sprites.drawGround(p, W, GROUND);
-sprites.drawScenery(p, W, GROUND, t);
+sprites.drawScenery(p, W, GROUND, t, 112);
 sprites.drawCastle(p, GROUND, 0.75, t);
 
 // постройки: 5 типов, разные уровни

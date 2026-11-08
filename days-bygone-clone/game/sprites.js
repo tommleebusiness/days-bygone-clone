@@ -318,7 +318,7 @@ export function drawCastle(p, groundY, hpFrac, t) {
   // черепичная крыша-конус с цветными рядами
   const roofH = 20;
   for (let i = 0; i < roofH; i++) {
-    const hw = Math.round((tw * 0.62) * (1 - i / roofH));
+    const hw = Math.max(0, Math.round((tw * 0.62) * (i / roofH)) - 1);
     const yy = tTop - roofH + i;
     for (let dx = -hw; dx <= hw; dx++) {
       const isDark = (i + Math.abs(dx)) % 4 < 2;
@@ -398,19 +398,21 @@ export function drawCastle(p, groundY, hpFrac, t) {
   }
   p.put(rx + 10, rTop - 27, COL.gold);
 
-  // ---- КРАСНЫЙ ФЛАГ на главной башне (развевается) ----
-  const flagX = 26, wave = Math.round(Math.sin(t * 3) * 2);
-  rect(p, flagX, wallTop - 34, 1, 22, COL.woodD);
-  for (let i = 0; i < 15; i++) {
-    const wob = Math.round(Math.sin(t * 3 + i * 0.3) * (i / 9));
-    const hh = 9 - Math.round(Math.abs(i - 7) / 2.2);
+  // ---- КРАСНЫЙ ФЛАГ на стене между башнями (древко стоит на зубцах) ----
+  const flagX = 50;
+  const poleTop = wallTop - 20;
+  rect(p, flagX, poleTop, 1, 20, COL.woodD);        // древко от зубцов вверх
+  p.put(flagX, poleTop - 1, COL.gold);              // навершие
+  for (let i = 0; i < 14; i++) {                    // полотнище вправо, развевается
+    const wob = Math.round(Math.sin(t * 3 + i * 0.35) * (i / 8));
+    const hh = 8 - Math.round(Math.abs(i - 6) / 2.4);
     for (let h = 0; h < hh; h++) {
-      p.put(flagX + 1 + i, wallTop - 34 + h + wob, h === 0 ? hex('#e05a44') : COL.red);
+      p.put(flagX + 1 + i, poleTop + 2 + h + wob, h === 0 ? hex('#e05a44') : COL.red);
     }
   }
-  p.put(flagX + 4, wallTop - 30, COL.gold);
-  p.put(flagX + 6, wallTop - 30, COL.gold);
-  p.put(flagX + 5, wallTop - 31, COL.gold);
+  p.put(flagX + 4, poleTop + 5, COL.gold);
+  p.put(flagX + 6, poleTop + 5, COL.gold);
+  p.put(flagX + 5, poleTop + 4, COL.gold);
 
   // ---- ТРЕЩИНЫ ОТ УРОНА ----
   const dmgLvl = Math.floor((1 - hpFrac) * 8);
@@ -1020,7 +1022,7 @@ function drawSkeleton(p, e, x, y, time, step) {
 }
 
 // ---------- Ландшафт: деревья, кусты, птицы (анимированные, мелкий пиксель) ----------
-export function drawScenery(p, w, groundY, time = 0) {
+export function drawScenery(p, w, groundY, time = 0, minX = 0) {
   const COLT = {
     trunk: hex('#5a4026'), trunkD: hex('#3f2c17'),
     leaf: hex('#4a6b2d'), leafD: hex('#38521f'), leafL: hex('#5d7f3a'),
@@ -1035,6 +1037,7 @@ export function drawScenery(p, w, groundY, time = 0) {
     [128, 0.75, 'pine'], [236, 1.05, 'oak'], [410, 0.8, 'oak'], [484, 1.15, 'pine'], [560, 0.95, 'oak'],
   ];
   for (const [tx, sc, kind] of trees) {
+    if (tx < minX) continue;                       // не рисуем поверх замка
     const s = sway(tx), th = Math.round(68 * sc);
     if (kind === 'pine') {
       rect(p, tx, groundY - th, 6, th, COLT.trunk);
@@ -1063,6 +1066,7 @@ export function drawScenery(p, w, groundY, time = 0) {
   }
   // камни
   for (const rx of [116, 236, 400, 500, 570]) {
+    if (rx < minX) continue;
     rect(p, rx, groundY - 6, 12, 6, COLT.rock);
     rect(p, rx + 2, groundY - 8, 8, 2, COLT.rock);
     p.put(rx + 2, groundY - 8, hex('#8a8072')); p.put(rx, groundY - 2, hex('#4d453b'));
@@ -1078,6 +1082,7 @@ export function drawScenery(p, w, groundY, time = 0) {
   }
   // кусты
   for (const bx of [140, 256, 356, 472, 576]) {
+    if (bx < minX) continue;
     const s = sway(bx + 40) > 0 ? 1 : 0;
     rect(p, bx, groundY - 8, 16, 8, COLT.bush);
     rect(p, bx + 4, groundY - 10, 8, 2, COLT.bush);

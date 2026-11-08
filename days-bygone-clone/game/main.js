@@ -555,7 +555,7 @@ function buildShop() {
     const el = document.createElement('div');
     el.className = 'up';
     el.dataset.key = def.key;
-    el.addEventListener('pointerdown', () => buy(def));
+    bindTap(el, () => buy(def));
     shop.appendChild(el);
   }
   renderShop();
@@ -595,7 +595,7 @@ function buildStructShop() {
     const el = document.createElement('div');
     el.className = 'up struct';
     el.dataset.skey = def.key;
-    el.addEventListener('pointerdown', () => buyStruct(def));
+    bindTap(el, () => buyStruct(def));
     shop.appendChild(el);
   }
   renderStructShop();
@@ -767,13 +767,15 @@ function buildInventoryUI() {
     </div>
     <div class="invBtnRow">
       <button class="btn btnSm" id="invSellJunk">🔥 ПРОДАТЬ МУСОР</button>
+      <button class="btn btnSm" id="invSellAll">💰 ПРОДАТЬ ВСЁ</button>
       <button class="btn" id="invClose">ЗАКРЫТЬ</button>
     </div>
   </div>`;
   bindTap(document.getElementById('invClose'), () => modal.style.display = 'none');
   bindTap(document.getElementById('invSellJunk'), sellJunk);
+  bindTap(document.getElementById('invSellAll'), sellAll);
   document.querySelectorAll('.d2slot').forEach(el => {
-    el.addEventListener('pointerdown', () => unequipSlot(el.dataset.slot));
+    bindTap(el, () => unequipSlot(el.dataset.slot));
     el.addEventListener('pointerenter', () => {
       const it = state.inv[el.dataset.slot];
       if (it) { selItem = null; showTip(it, true); }
@@ -796,6 +798,40 @@ function sellJunk() {
   selItem = null;
   renderInventory(); updateHud();
   toast(`🔥 Продано ${junk.length} шт. за ${sum} 🪙`);
+  saveGame();
+}
+
+// продать ВСЁ из сумки — двойное подтверждение на самой кнопке (confirm() в WebView не работает)
+let sellAllArmT = 0;
+function sellAll() {
+  const bag = state.inv.bag;
+  if (!bag.length) { toast('Сумка пуста'); return; }
+  const btn = document.getElementById('invSellAll');
+  const total = bag.reduce((s, it) => s + itemSellPrice(it), 0);
+  const now = performance.now();
+  if (now - sellAllArmT > 3000) {
+    // первый тап — «взводим» кнопку
+    sellAllArmT = now;
+    if (btn) { btn.textContent = `⚠ ТОЧНО? +${total}🪙`; btn.classList.add('armed'); }
+    toast('Нажми ещё раз, чтобы продать всё');
+    setTimeout(() => {
+      if (performance.now() - sellAllArmT >= 2900) {
+        sellAllArmT = 0;
+        if (btn) { btn.textContent = '💰 ПРОДАТЬ ВСЁ'; btn.classList.remove('armed'); }
+      }
+    }, 3000);
+    return;
+  }
+  // второй тап — продаём
+  sellAllArmT = 0;
+  if (btn) { btn.textContent = '💰 ПРОДАТЬ ВСЁ'; btn.classList.remove('armed'); }
+  bag.length = 0;
+  state.gold += total;
+  state.stats.totalGold += total;
+  selItem = null;
+  renderInventory(); updateHud();
+  sfx('coin');
+  toast(`💰 Продано всё за ${total} 🪙`);
   saveGame();
 }
 
@@ -937,7 +973,7 @@ function renderInventory() {
       drawItemIcon(cv, it);
       cell.title = it.name;
       let lastTap = 0;
-      cell.addEventListener('pointerdown', () => {
+      bindTap(cell, () => {
         const now = performance.now();
         if (now - lastTap < 320) { equipItem(it); lastTap = 0; }  // двойной тап = надеть
         else { selectItem(it); lastTap = now; }
@@ -1040,7 +1076,7 @@ function buildTree() {
       const n = document.createElement('div');
       n.className = 'treeNode';
       n.dataset.nid = node.id;
-      n.addEventListener('pointerdown', () => buyNode(node));
+      bindTap(n, () => buyNode(node));
       col.appendChild(n);
     }
     cols.appendChild(col);
@@ -1327,7 +1363,8 @@ function render(dt) {
   drawClouds(painter, W, state.time);
   drawParallax(painter, W, GROUND, state.time, state.time * 6);
   drawGround(painter, W, GROUND);
-  drawScenery(painter, W, GROUND, state.time);
+  // деревья и кусты — только ПРАВЕЕ замка, чтобы не «прорастать» сквозь стену
+  drawScenery(painter, W, GROUND, state.time, WALL_X + 12);
   weather.drawWeatherBack(painter, state.weather);          // пелена дождя / туман
   drawCastle(painter, GROUND, state.castleHp / maxCastleHp(), state.time);
   drawStructures(painter, state.structs, state.time);
@@ -1419,18 +1456,50 @@ function openInv() {
   setTimeout(fitInvPanel, 120);
 }
 // надёжная привязка кнопок HUD: pointerdown (тач) + click (мышь), без двойного срабатывания
+// Тап = нажал и отпустил БЕЗ прокрутки/сдвига.
+// Критично для мобильных: покупка не должна срабатывать при скролле ленты улучшений.
+const TAP_MOVE_PX = 12;      // допуск сдвига пальца
+const TAP_MAX_MS = 700;      // слишком долгое нажатие — не тап
 function bindTap(el, fn) {
   if (!el) return;
-  let fired = 0;
-  const go = (e) => {
+  let sx = 0, sy = 0, st = 0, moved = false, active = false, fired = 0;
+
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; st = performance.now();
+    moved = false; active = true;
+  }, { passive: true });
+
+  el.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    if (Math.abs(e.clientX - sx) > TAP_MOVE_PX || Math.abs(e.clientY - sy) > TAP_MOVE_PX) {
+      moved = true;              // это скролл, а не тап
+      active = false;
+    }
+  }, { passive: true });
+
+  el.addEventListener('pointercancel', () => { active = false; moved = true; }, { passive: true });
+
+  el.addEventListener('pointerup', (e) => {
+    if (!active) return;
+    active = false;
+    if (moved) return;
+    if (performance.now() - st > TAP_MAX_MS) return;
     const now = performance.now();
-    if (now - fired < 350) return;      // гасим дубль pointerdown→click
+    if (now - fired < 250) return;      // гасим дубль
     fired = now;
     if (e.cancelable) e.preventDefault();
     fn();
-  };
-  el.addEventListener('pointerdown', go);
-  el.addEventListener('click', go);
+  });
+
+  // мышь/клавиатура без pointer-событий
+  el.addEventListener('click', (e) => {
+    if (e.pointerType) return;            // pointerup уже обработал
+    const now = performance.now();
+    if (now - fired < 250) return;
+    fired = now;
+    fn();
+  });
 }
 bindTap(document.getElementById('volleyBtn'), fireVolley);
 
