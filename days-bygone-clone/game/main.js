@@ -14,7 +14,7 @@ import * as torchFx from "./fx/small-torch.js?v=4";
 import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg }
   from "./balance.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
-import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=12";
+import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=13";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles, structCost, structCd }
   from "./structures.js?v=11";
 import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
@@ -56,6 +56,7 @@ function checkNarrow() {
   if (!wrap) return;
   document.body.classList.toggle('narrow', wrap.clientWidth < 700);
   document.body.classList.toggle('short', wrap.clientHeight < 500);
+  if (typeof updateSlotLabels === 'function') updateSlotLabels();
 }
 addEventListener('resize', () => { fitScreen(); checkNarrow(); });
 addEventListener('orientationchange', () => setTimeout(() => { fitScreen(); checkNarrow(); }, 120));
@@ -782,6 +783,22 @@ function buildInventoryUI() {
     });
   });
   renderInventory();
+  updateSlotLabels();
+}
+
+// на узком экране длинные подписи слотов не влезают — сокращаем
+const SLOT_SHORT = {
+  helmet: 'ШЛЕМ', weapon: 'ЛУК', gloves: 'РУКИ', boots: 'САПОГИ', belt: 'ПОЯС',
+  shoulders: 'ПЛЕЧИ', ring: 'КОЛЬЦО', armor: 'БРОНЯ', kneepads: 'НОГИ', trinket: 'АМУЛЕТ',
+};
+function updateSlotLabels() {
+  const narrow = document.body.classList.contains('narrow');
+  document.querySelectorAll('.d2slot').forEach(el => {
+    const lab = el.querySelector('.slabel');
+    if (!lab) return;
+    if (lab.dataset.full === undefined) lab.dataset.full = lab.textContent;
+    lab.textContent = narrow ? (SLOT_SHORT[el.dataset.slot] || lab.dataset.full) : lab.dataset.full;
+  });
 }
 
 // продать всё серое и зелёное (не уникальное) — одна кнопка
@@ -994,6 +1011,12 @@ function fitInvPanel() {
   if (!m || m.style.display === 'none') return;
   const p = m.querySelector('.invPanel');
   if (!p) return;
+  // на мобильном панель сама растягивается по флекс-правилам — масштаб не нужен
+  if (document.body.classList.contains('narrow')) {
+    p.style.transform = 'none';
+    p.style.marginBottom = '0px';
+    return;
+  }
   p.style.transform = 'none';
   const availW = m.clientWidth - 12;
   const availH = m.clientHeight - 12;

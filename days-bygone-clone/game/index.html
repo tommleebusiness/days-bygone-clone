@@ -227,34 +227,46 @@
   body.narrow .overlay h1 { font-size:24px; }
   body.narrow .overlay p { font-size:12px; max-width:94%; }
   body.narrow .modal { padding:4px; overflow-y:auto; }
-  body.narrow .modal { align-items:center; justify-content:flex-start; overflow-y:auto;
+  body.narrow .modal { align-items:center; justify-content:center; overflow-y:auto;
     -webkit-overflow-scrolling:touch; padding:6px; }
-  body.narrow .invPanel { width:100%; max-width:100%; padding:5px 6px; max-height:100%;
-    margin:0 auto; gap:4px; }
-  body.narrow .invPanel h2 { font-size:12px; margin-bottom:2px; }
-  /* --- мобильный инвентарь: герой слева, вещи справа (две колонки, без переноса) --- */
-  body.narrow .d2wrap { gap:6px; flex-direction:row; flex-wrap:nowrap; align-items:stretch;
-    justify-content:flex-start; }
-  body.narrow .d2left { flex:0 0 auto; width:44%; padding:4px 3px; }
-  body.narrow .d2right { flex:1 1 auto; width:auto; min-width:0; }
-  body.narrow .d2caption { font-size:8px; margin-bottom:2px; letter-spacing:0.3px; }
-  body.narrow .d2body { gap:2px; }
-  body.narrow .d2slots { gap:3px; }
-  body.narrow .d2slot { width:clamp(30px, 8.6vw, 38px); height:clamp(30px, 8.6vw, 38px); border-width:1px; }
-  body.narrow .d2slot .slabel { font-size:7px; bottom:-9px; letter-spacing:0; padding:0 1px; }
-  body.narrow #heroDoll { width:clamp(44px, 13vw, 64px); height:clamp(70px, 21vw, 102px); }
-  body.narrow #invGrid { gap:2px; grid-template-columns:repeat(auto-fill, minmax(28px,1fr));
-    grid-auto-rows:minmax(28px, auto); padding:3px; }
-  body.narrow .cell { width:30px; height:30px; }
-  body.narrow .cell canvas { width:24px; height:24px; }
-  body.narrow .d2tip { min-height:44px; padding:4px 5px; font-size:10px; margin-top:4px; line-height:1.3; }
-  body.narrow .d2tip .tstat { font-size:9px; }
+  body.narrow .invPanel { width:100%; max-width:100%; height:auto; max-height:100%; padding:6px 8px 8px;
+    margin:0 auto; gap:5px; display:flex; flex-direction:column; overflow:hidden; }
+  body.narrow .invPanel h2 { font-size:12px; margin-bottom:2px; flex:0 0 auto; }
+  /* --- мобильный инвентарь: герой слева, вещи справа; компактно, без пустых зон --- */
+  body.narrow .d2wrap { gap:7px; flex-direction:row; flex-wrap:nowrap; align-items:stretch;
+    justify-content:flex-start; flex:0 0 auto; min-height:0; }
+  body.narrow .d2left { flex:0 0 auto; width:40%; height:auto; padding:4px 3px; display:flex;
+    flex-direction:column; align-self:stretch; }
+  body.narrow .d2right { flex:1 1 auto; width:auto; min-width:0; display:flex; flex-direction:column;
+    align-self:stretch; }
+  body.narrow .d2caption { font-size:9px; margin-bottom:5px; letter-spacing:0.4px; flex:0 0 auto; }
+  body.narrow .d2body { gap:4px; flex-wrap:nowrap; align-items:center; justify-content:space-between;
+    flex:1 1 auto; }
+  body.narrow .d2slots { gap:15px; }
+  body.narrow .d2slot { width:clamp(34px, 9.6vw, 44px); height:clamp(34px, 9.6vw, 44px); border-width:2px; }
+  body.narrow .d2slot canvas { width:100%; height:100%; }
+  body.narrow .d2slot .slabel { font-size:9px; bottom:-12px; letter-spacing:0; padding:1px 3px;
+    line-height:1.1; color:#f2e4bc; background:rgba(0,0,0,.9); border-radius:2px; }
+  body.narrow .d2doll { min-width:0; flex:1 1 auto; }
+  body.narrow #heroDoll { width:clamp(56px, 16vw, 88px); height:clamp(88px, 25vw, 136px); margin:0 auto; }
+  /* сетка сумки — ячейки подстраиваются под колонки (без выхода за границы) */
+  body.narrow #invGrid { gap:4px; grid-template-columns:repeat(auto-fill, minmax(36px,1fr));
+    grid-auto-rows:auto; padding:5px; flex:0 0 auto; align-content:start;
+    max-height:44vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  body.narrow .cell { width:auto; height:auto; aspect-ratio:1; min-height:0; max-height:44px; }
+  body.narrow .cell canvas { width:100%; height:100%; max-width:34px; max-height:34px; }
+  body.narrow .d2tip { min-height:0; padding:6px 7px; font-size:11px; margin-top:6px; line-height:1.4;
+    flex:0 0 auto; max-height:34vh; overflow-y:auto; }
+  body.narrow .d2tip .tstat { font-size:11px; line-height:1.4; }
   body.narrow .d2tip .tbtn { min-height:28px; font-size:10px; padding:4px 10px; }
-  body.narrow .d2foot { font-size:10px; gap:6px; }
-  body.narrow .invBtnRow { gap:5px; margin-top:3px; }
-  body.narrow .invBtnRow .btn { font-size:11px; padding:5px 12px; min-height:32px; letter-spacing:1px; }
-  body.narrow #invClose { min-height:32px; font-size:11px; padding:5px 20px; margin-top:0; }
-  body.narrow .d2foot .gold { font-size:10px; }
+  body.narrow .d2foot { font-size:10px; gap:6px; margin-top:auto; padding-top:6px; flex-wrap:wrap; flex:0 0 auto; }
+  body.narrow .d2foot .gold { font-size:10px; white-space:nowrap; }
+  body.narrow #invSummary { font-size:9px !important; white-space:normal; }
+  body.narrow .invBtnRow { gap:6px; margin-top:5px; flex:0 0 auto;
+    display:grid; grid-template-columns:1fr 1fr 1fr; }
+  body.narrow .invBtnRow .btn { font-size:10px; padding:8px 4px; min-height:34px; letter-spacing:0;
+    white-space:nowrap; width:100%; }
+  body.narrow #invClose { min-height:34px; font-size:10px; padding:8px 4px; margin-top:0; }
   body.narrow #treeCols { flex-direction:column; }
   body.narrow .treeCol { width:100%; max-width:420px; }
   body.narrow .cell { width:auto; height:auto; aspect-ratio:1; min-height:26px; }
@@ -404,6 +416,6 @@
   </div><!-- /stage -->
   <div id="shop"></div>
 </div>
-<script type="module" src="main.js?v=54"></script>
+<script type="module" src="main.js?v=55"></script>
 </body>
 </html>
