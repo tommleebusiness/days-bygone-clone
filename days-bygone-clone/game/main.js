@@ -27,6 +27,18 @@ import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, dr
   from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
   from "./tree.js?v=2";
+import { loadAtlas, atlasReady, atlasSprites, drawAtlasSprite } from "./atlas.js?v=1";
+import { atlasEnemiesForDay, ATLAS_BOSSES } from "./atlas-enemies.js?v=1";
+
+// босс → спрайт из атласа (id босса совпадает с ключом темы не везде)
+const BOSS_SPR = {
+  ogre:       'ogre_chief',
+  troll:      'stone_golem',
+  necro:      'sorcerer',
+  warlord:    'orc_chieftain',
+  dragonling: 'demon_knight',
+};
+const BOSS_SPR_K = { ogre: 4, troll: 4, necro: 4, warlord: 4, dragonling: 4 };
 
 // ---------- Канвас ----------
 // Мир рисуется в 640×360 — пиксель в 2 раза мельче, детализация выше
@@ -297,17 +309,35 @@ function startWave() {
 function spawnEnemy() {
   const day = state.day;
   const roll = Math.random();
-  const kind = day >= 3 && roll < 0.45 ? 'orc' : 'knight';
-  const hp = BAL.enemyHp(day, state.waveInDay);
+  // предпочтение — врагам из атласа, если спрайты загрузились
+  const pool = atlasReady() ? atlasEnemiesForDay(day) : [];
+  let kind = day >= 3 && roll < 0.45 ? 'orc' : 'knight';
+  let spr = null;
+  if (pool.length) {
+    // чем «новее» тип, тем меньше шанс (старые враги остаются массовкой)
+    const weights = pool.map((e, i) => Math.pow(2.2, i));
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total, pickI = 0;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { pickI = i; break; }
+    }
+    spr = pool[pickI];
+    kind = 'atlas';
+  }
+  const hp = Math.round(BAL.enemyHp(day, state.waveInDay) * (spr ? spr.hpMult : 1));
   enemies.push({
     kind, x: W + 10, y: GROUND,
     hp, maxHp: hp,
-    speed: BAL.enemySpeed(day) * (kind === 'orc' ? 1.25 : 1),
+    speed: BAL.enemySpeed(day) * (kind === 'orc' ? 1.25 : 1) * (spr ? spr.spdMult : 1),
     walkT: Math.random() * 10,
-    dmg: BAL.enemyDmg(day),
+    dmg: Math.round(BAL.enemyDmg(day) * (spr ? spr.dmgMult : 1)),
     gold: BAL.enemyGold(day, false),
     attacking: false,
     atkT: 0,
+    sprKey: spr ? spr.key : null,
+    sprK: spr ? spr.k : 2,
+    sprVari: (Math.random() * 3) | 0,
   });
 }
 
@@ -326,6 +356,9 @@ function spawnBoss(forceId) {
     armor: b.armor || 0, evade: b.evade || 0,
     mechanic: b.mechanic, mechT: 3.0, summonT: 4.0,
     size: b.size,
+    sprKey: atlasReady() ? (BOSS_SPR[b.id] || null) : null,
+    sprK: BOSS_SPR_K[b.id] || 4,
+    sprVari: (Math.random() * 3) | 0,
   });
   sfx('boss');
   toast(`⚠ ${b.title}`);
@@ -637,7 +670,92 @@ const RAR = {
   5: { name: 'легендарное', col: '#f4a742', gem: '#e07020' },
 };
 // Пиксельная иконка предмета 14×14 (рисуем на canvas)
+// Иконки предметов из Pixel Art Atlas (CC0). Грузятся один раз, рисуются поверх
+// процедурной графики; если картинка не загрузилась — остаётся нарисованная кодом.
+const itemIcons = {};      // slot -> [HTMLImageElement|null, ...]
+let itemIconsReady = false;
+const ITEM_SLOTS = ['weapon','helmet','armor','gloves','boots','belt','ring','trinket',
+                    'shoulders','kneepads','arrow','potion'];
+function loadItemIcons(base = 'assets/items/') {
+  if (itemIconsReady) return Promise.resolve(itemIcons);
+  const jobs = [];
+  for (const s of ITEM_SLOTS) {
+    itemIcons[s] = [];
+    for (let n = 0; n < 2; n++) {
+      jobs.push(new Promise((res) => {
+        const im = new Image();
+        im.onload = () => { itemIcons[s][n] = im; res(); };
+        im.onerror = () => { itemIcons[s][n] = null; res(); };
+        im.src = `${base}${s}_${n}.png`;
+      }));
+    }
+  }
+  return Promise.all(jobs).then(() => { itemIconsReady = true; return itemIcons; });
+}
+// вариант иконки выбираем детерминированно по uid — чтобы у предмета всегда был свой вид
+function iconVariant(item) {
+  let h = 0;
+  const s = String(item.uid || item.name || 'x');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 2;
+}
+function drawAtlasItemIcon(cv, item) {
+  const list = itemIcons[item.slot];
+  if (!itemIconsReady || !list) return false;
+  const img = list[iconVariant(item)] || list[0];
+  if (!img) return false;
+  const S = 16;
+  cv.width = S; cv.height = S;
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, S, S);
+  // Вписываем предмет в квадрат по «площади», а не по одной оси:
+  // иначе меч (узкий и высокий) сжимается в тонкую полоску.
+  // Целевое заполнение — около 88% ячейки по большей стороне.
+  const b = iconBox(img);
+  const TARGET = 14;                        // из 16 px ячейки
+  let k = Math.min(TARGET / b.w, TARGET / b.h);
+  // если предмет очень вытянутый, разрешаем занять почти всю ячейку по длинной стороне
+  const long = Math.max(b.w, b.h), short = Math.min(b.w, b.h);
+  if (short > 0 && long / short > 2.2) k = Math.min(15 / long, TARGET / short * 1.0);
+  let dw = Math.max(1, Math.round(b.w * k));
+  let dh = Math.max(1, Math.round(b.h * k));
+  dw = Math.min(16, dw); dh = Math.min(16, dh);
+  const dx = Math.round((S - dw) / 2), dy = Math.round((S - dh) / 2);
+  g.drawImage(img, b.x, b.y, b.w, b.h, dx, dy, dw, dh);
+  return true;
+}
+
+// Границы непрозрачных пикселей спрайта (кэшируется).
+const _iconBoxCache = new WeakMap();
+function iconBox(img) {
+  if (_iconBoxCache.has(img)) return _iconBoxCache.get(img);
+  let box = { x: 0, y: 0, w: img.width, h: img.height };
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (d[(y * c.width + x) * 4 + 3] > 8) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 >= x0 && y1 >= y0) {
+      box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+  } catch (e) { /* canvas недоступен — рисуем как есть */ }
+  _iconBoxCache.set(img, box);
+  return box;
+}
+
 function drawItemIcon(cv, item) {
+  if (drawAtlasItemIcon(cv, item)) return;
   cv.width = 14; cv.height = 14;
   const g = cv.getContext('2d');
   const px = (x, y, c) => { g.fillStyle = c; g.fillRect(x, y, 1, 1); };
@@ -1375,6 +1493,26 @@ function update(dt) {
 
 // ---------- Отрисовка ----------
 const painter = new Painter(frame);
+
+// Рисует врага из атласа. Возвращает true, если спрайт отрисован.
+// Анимации в датасете нет, поэтому ходьба имитируется покачиванием и отражением.
+function drawEnemyAtlas(e, x, y, time, step) {
+  const spr = atlasSprites[e.sprKey];
+  if (!spr || !spr.variants) return false;
+  const k = e.sprK || 2;
+  const set = spr.variants[(e.sprVari || 0) % spr.variants.length];
+  const sz = set && set[k];
+  if (!sz) return false;
+  const w = sz.w, h = sz.h;
+  // стоят на земле: низ спрайта на линии y, центруем по x
+  const bob = (e.x > 104) ? Math.round(Math.sin(e.walkT * 8) * (k > 2 ? 1 : 1)) : 0;
+  const sx = Math.round(x - w / 2);
+  const sy = Math.round(y - h + Math.abs(bob));
+  // враги идут справа налево → отражаем по горизонтали
+  const flash = e.hitT > 0 ? Math.min(0.75, e.hitT * 5) : 0;
+  drawAtlasSprite(painter, e.sprKey, e.sprVari, sx, sy, k, true, flash);
+  return true;
+}
 function drawLootDropsSafe(painter) {
   for (const d of state.loot) drawLootDrop(painter, d, state.time);
 }
@@ -1404,7 +1542,7 @@ function render(dt) {
   }
   frame.ox = -ox; frame.oy = -oy;
 
-  for (const e of enemies) drawEnemy(painter, e, state.time);
+  for (const e of enemies) drawEnemy(painter, e, state.time, drawEnemyAtlas);
   drawParticles(painter, state.particles);
   drawLootDropsSafe(painter);
   // трейл стрел: тающий след позади + золотое свечение крита
@@ -1585,4 +1723,10 @@ function renderTreePtsOnly() {
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
 window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene };
+// спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
+Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
+  window.__dbg.atlas = atlasSprites;
+  renderInventory();
+  toast('🎨 Спрайты и иконки загружены');
+}).catch(() => {});
 requestAnimationFrame(tick);

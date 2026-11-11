@@ -593,7 +593,7 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
 }
 
 // ---------- Враги (2× детализация) ----------
-export function drawEnemy(p, e, time = 0) {
+export function drawEnemy(p, e, time = 0, atlas = null) {
   const x = Math.round(e.x), y = Math.round(e.y);
   const walking = e.x > 104;
   // тень под врагом (шире у боссов)
@@ -605,6 +605,12 @@ export function drawEnemy(p, e, time = 0) {
   const step = walking ? Math.round(Math.sin(e.walkT * 8)) : 0;
   // замах оружием при ударе по стене
   const atkPhase = (!walking && e.atkT > 0) ? (e.atkT > 0.5 ? 1 : 0) : 0;
+
+  // ---------- Спрайт из атласа (Pixel Art Atlas, CC0) ----------
+  if (atlas && e.sprKey && atlas(e, x, y, time, step)) {
+    return;                      // спрайт нарисован, процедурная графика не нужна
+  }
+
   if (e.burn) {
     const fl = Math.sin(time * 12) > 0 ? 1 : 0;
     p.put(x - 4, y - 28 - fl, 0xfff26a1d);

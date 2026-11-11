@@ -1,0 +1,72 @@
+{
+  "skeleton_warrior": [
+    "skeleton_warrior_0.png",
+    "skeleton_warrior_1.png",
+    "skeleton_warrior_2.png"
+  ],
+  "knight": [
+    "knight_0.png",
+    "knight_1.png",
+    "knight_2.png"
+  ],
+  "ghoul": [
+    "ghoul_0.png",
+    "ghoul_1.png",
+    "ghoul_2.png"
+  ],
+  "zombie_soldier": [
+    "zombie_soldier_0.png",
+    "zombie_soldier_1.png",
+    "zombie_soldier_2.png"
+  ],
+  "wolf_warrior": [
+    "wolf_warrior_0.png",
+    "wolf_warrior_1.png",
+    "wolf_warrior_2.png"
+  ],
+  "orc_warrior": [
+    "orc_warrior_0.png",
+    "orc_warrior_1.png",
+    "orc_warrior_2.png"
+  ],
+  "orc_chieftain": [
+    "orc_chieftain_0.png",
+    "orc_chieftain_1.png",
+    "orc_chieftain_2.png"
+  ],
+  "goblin_warrior": [
+    "goblin_warrior_0.png",
+    "goblin_warrior_1.png",
+    "goblin_warrior_2.png"
+  ],
+  "goblin_king": [
+    "goblin_king_0.png",
+    "goblin_king_1.png",
+    "goblin_king_2.png"
+  ],
+  "sorcerer": [
+    "sorcerer_0.png",
+    "sorcerer_1.png",
+    "sorcerer_2.png"
+  ],
+  "ogre_chief": [
+    "ogre_chief_0.png",
+    "ogre_chief_1.png",
+    "ogre_chief_2.png"
+  ],
+  "stone_golem": [
+    "stone_golem_0.png",
+    "stone_golem_1.png",
+    "stone_golem_2.png"
+  ],
+  "demon_knight": [
+    "demon_knight_0.png",
+    "demon_knight_1.png",
+    "demon_knight_2.png"
+  ],
+  "skeleton_king": [
+    "skeleton_king_0.png",
+    "skeleton_king_1.png",
+    "skeleton_king_2.png"
+  ]
+}

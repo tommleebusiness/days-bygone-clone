@@ -1,0 +1,50 @@
+{
+  "weapon": [
+    "weapon_0.png",
+    "weapon_1.png"
+  ],
+  "helmet": [
+    "helmet_0.png",
+    "helmet_1.png"
+  ],
+  "armor": [
+    "armor_0.png",
+    "armor_1.png"
+  ],
+  "gloves": [
+    "gloves_0.png",
+    "gloves_1.png"
+  ],
+  "boots": [
+    "boots_0.png",
+    "boots_1.png"
+  ],
+  "belt": [
+    "belt_0.png",
+    "belt_1.png"
+  ],
+  "ring": [
+    "ring_0.png",
+    "ring_1.png"
+  ],
+  "trinket": [
+    "trinket_0.png",
+    "trinket_1.png"
+  ],
+  "shoulders": [
+    "shoulders_0.png",
+    "shoulders_1.png"
+  ],
+  "kneepads": [
+    "kneepads_0.png",
+    "kneepads_1.png"
+  ],
+  "arrow": [
+    "arrow_0.png",
+    "arrow_1.png"
+  ],
+  "potion": [
+    "potion_0.png",
+    "potion_1.png"
+  ]
+}
