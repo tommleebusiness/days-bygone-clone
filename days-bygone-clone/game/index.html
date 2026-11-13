@@ -282,12 +282,37 @@
   body.short #castleHpWrap { top:28px; left:4px; width:80px; }
   body.short #waveBarWrap { top:28px; right:4px; width:60px; }
   body.short #castleHpWrap .label, body.short #waveBarWrap .label { font-size:7px; }
+
+  /* ---- короткие экраны (телефон в ландшафте) ---- */
+  /* панель Доната: на ландшафтном телефоне экран широкий, но низкий —
+     раскладываем товары в ДВЕ колонки, чтобы всё влезло без прокрутки */
+  body.short #donateList { display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; align-content:start; }
+  body.short #donateList .dsec { grid-column:1 / -1; margin:1px 2px; padding-bottom:1px; }
+  body.short #donateList .dfoot { grid-column:1 / -1; }
+  body.short .dhead { padding:5px 10px; }
+  body.short .dhead h2 { font-size:12px; }
+  body.short .dscroll { padding:5px 9px 6px; }
+  body.short .ditem { padding:3px 7px; margin-bottom:0; gap:6px; }
+  body.short .dic { width:24px; height:24px; flex-basis:24px; font-size:14px; border-radius:6px; }
+  body.short .dname { font-size:11px; }
+  body.short .ddesc { font-size:9px; line-height:1.15; }
+  body.short .dprice { font-size:10px; padding:4px 8px; }
+  body.short .dfoot { margin-top:4px; padding-top:4px; }
+  body.short .dnote { display:none; }
+
+  /* панель бонусов за рекламу: те же пропорции */
+  body.short #adList .adcard { padding:5px 7px; margin-bottom:4px; gap:6px; }
+  body.short .adgo { font-size:10px; padding:5px 9px; }
+  body.short .adnote { font-size:10px; margin:0 2px 5px; }
   body.short #castleHp { height:5px; } body.short #waveBar { height:4px; }
-  body.short .up { padding:2px 4px; font-size:9px; flex:0 0 auto; width:74px; }
-  body.short .up .t { font-size:9px; }
+  /* лента апгрейдов обязана быть ≤16% высоты даже на 568×320 */
+  body.short .up { padding:1px 3px; font-size:8px; line-height:1.1; flex:0 0 auto;
+                   width:70px; border-width:1px; border-radius:2px; }
+  body.short .up .t { font-size:8px; }
+  body.short .up .lvl { font-size:7px; }
+  body.short .up .cost { font-size:9px; }
   body.short .up .desc { display:none; }
-  body.short #shop { padding:2px 5px; }
-  body.short .up .desc { display:none; }
+  body.short #shop { padding:1px 4px; gap:3px; }
   body.short .overlay h1 { font-size:18px; } body.short .overlay p { font-size:11px; }
   body.short #toast { top:auto; bottom:auto; }
 

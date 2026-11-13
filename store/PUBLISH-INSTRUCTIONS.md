@@ -18,7 +18,14 @@
 | Метаданные App Store | `store/apple/store-listing.md` |
 | Иконка iOS 1024×1024 | `store/apple/AppIcon-1024.png` |
 | Скриншоты iOS (4 размера) | `store/apple/screenshots/` |
-| Код iOS-обёртки | `store/apple/ContentView.swift` |
+| Код iOS (WebView + мосты) | `store/apple/ContentView.swift` |
+| iOS: покупки | `store/apple/StoreKitManager.swift` |
+| iOS: реклама | `store/apple/AdsManagerIOS.swift` |
+| iOS: JS-шим `window.Android` | `store/apple/BridgeShim.js` |
+| iOS: точка входа | `store/apple/DaysBygoneApp.swift` |
+| iOS: Info.plist | `store/apple/Info.plist` |
+| iOS: каталог иконок | `store/apple/Assets.xcassets/` |
+| **Инструкция сборки iOS** | **`store/apple/README-BUILD.md`** |
 | Политика конфиденциальности | `store/privacy-policy.md` |
 
 **Версия:** 3.1 (versionCode 15)
@@ -106,28 +113,40 @@
 
 ### Шаги на Mac
 
+📖 **Полная пошаговая инструкция: `store/apple/README-BUILD.md`** (там же — что
+проверить на симуляторе и как настроить тестовые покупки).
+
+Кратко:
+
 ```
 1. Xcode → File → New → Project → iOS → App
    Product Name: Дни Минувшие
    Bundle ID:    com.tommlee.daysbygone
    Interface:    SwiftUI, Language: Swift
+   Minimum iOS:  15.0  (нужен StoreKit 2)
 
-2. Перетащить папку game/ в проект
-   ⚠️ Выбрать "Create folder references" (синяя папка), НЕ "Create groups"
+2. Перетащить в проект 4 файла из store/apple/:
+   ContentView.swift, DaysBygoneApp.swift,
+   StoreKitManager.swift, AdsManagerIOS.swift
+   + BridgeShim.js (Target Membership = YES)
 
-3. Заменить ContentView.swift на store/apple/ContentView.swift
+3. Перетащить папку game/ → «Create folder references» (СИНЯЯ папка),
+   НЕ «Create groups» — иначе ES-модули не загрузятся
 
-4. Info.plist:
-   - UISupportedInterfaceOrientations: LandscapeLeft, LandscapeRight
-   - UIRequiresFullScreen: YES
-   - GADApplicationIdentifier: <ваш AdMob iOS App ID>
+4. Info.plist — значения из store/apple/Info.plist
+   (ориентации, ATT, GADApplicationIdentifier, SKAdNetwork)
 
-5. Добавить зависимости (SPM):
-   - StoreKit 2 (встроен в iOS 15+)
-   - Google Mobile Ads SDK: https://github.com/googleads/swift-package-manager-google-mobile-ads
+5. SPM: https://github.com/googleads/swift-package-manager-google-mobile-ads
+   продукт GoogleMobileAds
 
-6. Product → Archive → Distribute App → App Store Connect
+6. Иконка: store/apple/Assets.xcassets → заменить папку в проекте
+
+7. Product → Archive → Distribute App → App Store Connect
 ```
+
+⚠️ Если игра открылась, но кнопки не реагируют — почти всегда причина в шаге 3
+(groups вместо folder references) или `BridgeShim.js` не добавлен в target.
+Проверка в Safari → Develop: `window.Android.platform()` должно вернуть `'ios'`.
 
 ### В App Store Connect
 
@@ -139,11 +158,18 @@
 6. Заполнить App Privacy (AD ID для рекламы)
 7. Добавить запрос ATT (App Tracking Transparency) в Info.plist
 
-### Про рекламу на iOS
+### Про рекламу и покупки на iOS
 
-В `store/apple/ContentView.swift` rewarded-реклама пока стоит заглушкой
-(награда выдаётся сразу). Для реальной рекламы нужно подключить
-`GADRewardedAd` — код-заготовка в мосте уже есть.
+Уже реализовано (`AdsManagerIOS.swift`, `StoreKitManager.swift`):
+- **баннер** — `BannerView` поверх WebView, прячется на экране боя;
+- **межстраничная** — `InterstitialAd`, с перезагрузкой после показа;
+- **rewarded** — `RewardedAd` с выдачей награды в JS;
+- **покупки** — StoreKit 2: загрузка товаров, покупка, восстановление,
+  автоматическое закрытие расходуемых, флаг «без рекламы» в UserDefaults;
+- **ATT** — запрос разрешения на трекинг при старте.
+
+Стоят **тестовые ID Google** — их нужно заменить перед публикацией
+(три константы в `AdsManagerIOS.swift` + `GADApplicationIdentifier` в Info.plist).
 
 **Важно:** на iOS цены в App Store должны учитывать комиссию Apple (30%).
 Если в Google Play товар стоит 199 ₽, в App Store ставьте ~399 ₽,
