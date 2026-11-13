@@ -980,13 +980,44 @@ function unequipSlot(slot) {
   renderInventory(); updateHud();
 }
 
+// ---------- Инвентарь: выбор и экипировка ----------
+// Состояние объявлено ДО функций, которые его используют (иначе TDZ-ошибка).
+let selItem = null, previewEl = null;
+// Общее состояние двойного тапа: ячейки пересоздаются при каждой перерисовке,
+// поэтому хранить счётчик внутри ячейки нельзя — он теряется.
+const lastCellTap = { t: 0, uid: null };
+const DOUBLE_TAP_MS = 400;
+
+// Ищем предмет по uid в АКТУАЛЬНОЙ сумке. Это принципиально: после экипировки
+// инвентарь перерисовывается, и ссылки на объекты предметов устаревают —
+// именно из-за этого раньше «надевалось не то».
+function bagItemByUid(uid) {
+  const bag = state.inv.bag;
+  for (let i = 0; i < bag.length; i++) if (bag[i] && bag[i].uid === uid) return bag[i];
+  return null;
+}
+function selectByUid(uid) {
+  const it = bagItemByUid(uid);
+  if (it) selectItem(it);
+}
+function equipByUid(uid) {
+  const it = bagItemByUid(uid);
+  if (it) equipItem(it);
+}
+
 // надеть предмет из сумки
 function equipItem(it) {
+  if (!it) return;
+  // предмет уже надет в свой слот — повторный двойной тап ничего не делает
+  if (state.inv[it.slot] && state.inv[it.slot].uid === it.uid) return;
   const old = state.inv[it.slot];
   const idx = state.inv.bag.indexOf(it);
-  if (idx >= 0) state.inv.bag.splice(idx, 1);
+  if (idx < 0) return;                       // предмета нет в сумке
+  state.inv.bag.splice(idx, 1);
   if (old) state.inv.bag.push(old);
   state.inv[it.slot] = it;
+  selItem = null;                            // выбор сбрасываем: предмет уехал в слот
+  lastCellTap.t = 0;
   sfx('equip');
   renderInventory(); updateHud();
   saveGame();
@@ -1107,11 +1138,25 @@ function renderInventory() {
       cell.appendChild(cv);
       drawItemIcon(cv, it);
       cell.title = it.name;
-      let lastTap = 0;
+      // двойной тап/клик = надеть. Счётчик живёт в общем объекте (ячейки
+      // пересоздаются при каждой перерисовке, локальная переменная терялась).
+      const uid = it.uid;
       bindTap(cell, () => {
         const now = performance.now();
-        if (now - lastTap < 320) { equipItem(it); lastTap = 0; }  // двойной тап = надеть
-        else { selectItem(it); lastTap = now; }
+        if (now - lastCellTap.t < DOUBLE_TAP_MS && lastCellTap.uid === uid) {
+          lastCellTap.t = 0;
+          equipByUid(uid);          // ищем предмет в ТЕКУЩЕЙ сумке по uid
+        } else {
+          lastCellTap.t = now;
+          lastCellTap.uid = uid;
+          selectByUid(uid);
+        }
+      });
+      // браузерный double-click (мышь) — надёжнее на десктопе
+      cell.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        lastCellTap.t = 0;
+        equipByUid(uid);
       });
       cell.addEventListener('pointerenter', () => previewItem(it, cell));
     }
@@ -1151,7 +1196,6 @@ function fitInvPanel() {
 }
 addEventListener('resize', () => setTimeout(fitInvPanel, 30));
 
-let selItem = null, previewEl = null;
 function previewItem(it, cell) {
   if (previewEl) previewEl.classList.remove('sel');
   previewEl = cell;
@@ -1621,9 +1665,15 @@ function openInv() {
 // Критично для мобильных: покупка не должна срабатывать при скролле ленты улучшений.
 const TAP_MOVE_PX = 12;      // допуск сдвига пальца
 const TAP_MAX_MS = 700;      // слишком долгое нажатие — не тап
+// После pointerup браузер присылает click — это «эхо» одного и того же нажатия,
+// его надо гасить. Но повторный pointerup (второй тап двойного нажатия) гасить
+// нельзя, иначе двойной тап не работает. Поэтому эхо ловим коротким окном и
+// только для click, идущего сразу за pointerup.
+const TAP_ECHO_MS = 350;
 function bindTap(el, fn) {
   if (!el) return;
-  let sx = 0, sy = 0, st = 0, moved = false, active = false, fired = 0;
+  let sx = 0, sy = 0, st = 0, moved = false, active = false;
+  let lastUp = 0;              // время последнего обработанного pointerup
 
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1646,19 +1696,16 @@ function bindTap(el, fn) {
     active = false;
     if (moved) return;
     if (performance.now() - st > TAP_MAX_MS) return;
-    const now = performance.now();
-    if (now - fired < 250) return;      // гасим дубль
-    fired = now;
+    lastUp = performance.now();
     if (e.cancelable) e.preventDefault();
-    fn();
+    fn();                        // повторные тапы проходят всегда — нужен двойной
   });
 
-  // мышь/клавиатура без pointer-событий
+  // click приходит после pointerup как эхо — гасим его; если pointer-событий
+  // не было вовсе (старый браузер/клавиатура), обрабатываем click как тап
   el.addEventListener('click', (e) => {
-    if (e.pointerType) return;            // pointerup уже обработал
-    const now = performance.now();
-    if (now - fired < 250) return;
-    fired = now;
+    if (e.pointerType) return;                                  // pointerup уже обработал
+    if (performance.now() - lastUp < TAP_ECHO_MS) return;       // эхо pointerup
     fn();
   });
 }
