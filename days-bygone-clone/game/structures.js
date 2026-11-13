@@ -2,6 +2,8 @@
 // Каждое: { key, lvl } — lvl 0 = не построено. Покупка/апгрейд из магазина.
 
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
+import { TIER_PAL, drawHighTierDeco, drawSecondTier, drawSpires, drawGargoyle,
+         drawCrown, drawLevitating } from "./structure-upgrades.js?v=3";
 
 const COL = {
   wood: hex('#7a5a32'), woodD: hex('#57401f'), woodDD: hex('#3a2a14'),
@@ -65,8 +67,24 @@ export const STRUCT_DEFS = [
   },
 ];
 
+// Максимальный уровень постройки. На 15-м открывается легендарный вид
+// (корона, парящие камни) — выше расти незачем.
+export const MAX_STRUCT_LVL = 15;
+export const SOFT_LEVEL = 5;      // до этого уровня цена растёт как раньше
+export const SOFT_GROWTH = 1.45;  // после — мягче, чтобы 15-й был достижим
+
 export function structCost(def, lvl) {
-  return Math.ceil(def.baseCost * Math.pow(def.costGrowth, lvl));
+  if (lvl >= MAX_STRUCT_LVL) return Infinity;
+  const hard = Math.min(lvl, SOFT_LEVEL);
+  const soft = Math.max(0, lvl - SOFT_LEVEL);
+  return Math.ceil(def.baseCost * Math.pow(def.costGrowth, hard) * Math.pow(SOFT_GROWTH, soft));
+}
+
+// сколько всего золота уйдёт на путь с 0 до target (для баланса и подсказок)
+export function structTotalCost(def, target) {
+  let sum = 0;
+  for (let l = 0; l < target; l++) sum += structCost(def, l);
+  return sum;
 }
 export function structCd(def, lvl) {
   if (def.key === 'crossbow') return Math.max(0.8, 2.6 - 0.25 * (lvl - 1));
@@ -242,6 +260,12 @@ export function updateStructures(dt, structs, ctx) {
 }
 const W_LIMIT = 690;
 
+// пиксель с альфой для золотых акцентов
+function putGold(p, x, y, col, a) {
+  if (a === undefined) p.put(Math.round(x), Math.round(y), col);
+  else p.dot(Math.round(x), Math.round(y), col, a);
+}
+
 function rect(p, x, y, w, h, col) {
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) p.put(x + i, y + j, col);
 }
@@ -361,14 +385,53 @@ function platform(p, x, w, y = G2) {
   p.put(x + Math.round(w / 2) - 1, y + 3, hex('#1e1810'));
 }
 
+// Уровневая прогрессия построек до 15 ур. Пять визуальных тиров:
+//   T0 (1-2)  — простой камень          T1 (3-5)  — золотая отделка + флаг
+//   T2 (6-8)  — второй ярус, зубцы      T3 (9-11) — шпили, свет, самоцветы
+//   T4 (12-14)— магия: руны, аура, гаргульи
+//   T5 (15)   — легендарная: корона, парящие камни, мощное свечение
+export function tierOf(lvl) {
+  if (lvl >= 15) return 5;
+  if (lvl >= 12) return 4;
+  if (lvl >= 9) return 3;
+  if (lvl >= 6) return 2;
+  if (lvl >= 3) return 1;
+  return 0;
+}
+
+// базовые габариты постройки по её ключу и уровню (согласовано с отрисовкой)
+function structDims(key, st) {
+  switch (key) {
+    case 'tower':    return { H: 64 + st.grow, W2: 14 + st.widen };
+    case 'mage':     return { H: 56 + st.grow, W2: 12 + st.widen };
+    case 'crossbow': return { H: 50 + Math.round(st.grow * 0.8), W2: 11 + st.widen };
+    case 'ballista': return { H: 40 + Math.round(st.grow * 0.6), W2: 13 + Math.round(st.widen * 0.7) };
+    case 'catapult': return { H: 30 + Math.round(st.grow * 0.45), W2: 15 + Math.round(st.widen * 0.7) };
+    case 'cauldron': return { H: 26 + Math.round(st.grow * 0.35), W2: 10 + Math.round(st.widen * 0.5) };
+    case 'spikes':   return { H: 14 + Math.round(st.grow * 0.25), W2: 16 + Math.round(st.widen * 0.5) };
+    case 'healer':   return { H: 34 + Math.round(st.grow * 0.5), W2: 10 + Math.round(st.widen * 0.5) };
+    default:         return { H: 46 + st.grow, W2: 12 + st.widen };
+  }
+}
+
 function lvlStyle(lvl) {
+  const tier = tierOf(lvl);
   return {
-    grow: Math.min(24, (lvl - 1) * 6),          // прирост высоты
-    widen: Math.min(8, (lvl - 1) * 2),          // прирост ширины
-    trim: lvl >= 3,                             // золотая отделка
-    banner: lvl >= 2,                           // флажок
-    double: lvl >= 4,                           // двойные зубцы/детали
-    glow: lvl >= 5,                             // свечение
+    lvl, tier,
+    grow: Math.min(46, Math.round((lvl - 1) * 3.2)),   // прирост высоты (до 15: ~45px)
+    widen: Math.min(13, Math.round((lvl - 1) * 0.9)),  // прирост ширины
+    trim: lvl >= 3,          // золотая отделка
+    banner: lvl >= 2,        // флажок
+    double: lvl >= 4,        // двойные детали
+    tier2: tier >= 2,        // второй ярус / доп. зубцы (6+)
+    spires: tier >= 3,       // шпили по углам (9+)
+    gems: tier >= 3,         // самоцветы в кладке (9+)
+    runes: tier >= 4,        // светящиеся руны (12+)
+    aura: tier >= 4,         // аура вокруг постройки (12+)
+    gargoyle: tier >= 4,     // гаргулья/страж наверху (12+)
+    crown: tier >= 5,        // золотая корона (15)
+    levitate: tier >= 5,     // парящие камни (15)
+    glow: lvl >= 5,          // свечение (старое поведение)
   };
 }
 
@@ -781,6 +844,51 @@ export function drawStructures(p, structs, time) {
         }
       }
       for (let i = 0; i < Math.min(5, s.lvl); i++) p.dot(x - 8 + i * 4, G - 2, hex('#7fc97f'));
+    }
+  }
+
+  // высокоуровневый декор (тиры 2..5): второй ярус, шпили, гаргульи, корона.
+// ⚠️ Второй ярус/шпили/корона — ТОЛЬКО для высоких строений. На шипах (H≈14)
+// или котле (H≈26) надстройка выглядит как абсурдный каменный блок.
+// Маленькие постройки получают ауру, самоцветы, фонари и золотой венец вместо яруса.
+  for (const s of structs) {
+    if (s.lvl < 6) continue;
+    const def = STRUCT_DEFS.find(d => d.key === s.key);
+    if (!def) continue;
+    const st = lvlStyle(s.lvl);
+    const x = def.x;
+    const dims = structDims(s.key, st);
+    const pal = TIER_PAL[Math.min(5, st.tier)];
+    const topY = G2 - dims.H;
+    // аура/самоцветы/фонари/руны — для всех построек
+    drawHighTierDeco(p, st, x, topY, dims.W2, dims.H, time);
+
+    // Надстройку получают только настоящие башни и осадные машины.
+    // Котёл, шипы, лагерь лекаря — низкие/«наземные», у них каменный ярус
+    // поверх выглядел бы абсурдно, им достаётся золотая кромка.
+    const TALL_KEYS = { tower: 1, mage: 1, crossbow: 1, ballista: 1 };
+    if (TALL_KEYS[s.key] && dims.H >= 40) {
+      // высокие: полноценная надстройка
+      const topY2 = drawSecondTier(p, x, topY, dims.W2, st, time, pal);
+      if (st.spires) drawSpires(p, x, topY2, dims.W2, st, time, pal);
+      if (st.gargoyle) drawGargoyle(p, x, topY2 - 3, st, time, pal);
+      if (st.crown) drawCrown(p, x, topY2 - (st.gargoyle ? 12 : 4), time, pal);
+      if (st.levitate) drawLevitating(p, x, topY, dims.W2, st, time, pal);
+    } else {
+      // низкие (шипы, котёл, лекарь): золотой венец по кромке + блик, без яруса
+      const wcap = Math.min(dims.W2, 12);
+      for (let i = -wcap; i <= wcap; i++) {
+        const dip = Math.round(Math.abs(i) / Math.max(1, wcap) * 2);
+        putGold(p, x + i, topY - dip, st.tier >= 5 ? 0xffffff : pal.aura, 0.95);
+        putGold(p, x + i, topY - dip - 1, pal.aura, 0.5);
+      }
+      // маленькие искры над кромкой на легендарном уровне
+      if (st.tier >= 5) {
+        for (let i = 0; i < 3; i++) {
+          const ph = (time * 1.6 + i * 0.33) % 1;
+          putGold(p, x - 6 + i * 6, topY - 3 - ph * 8, 0xffe08a, (1 - ph) * 0.9);
+        }
+      }
     }
   }
 

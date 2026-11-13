@@ -15,7 +15,8 @@ import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, b
   from "./balance.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=13";
-import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles, structCost, structCd }
+import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles,
+         structCost, structCd, MAX_STRUCT_LVL }
   from "./structures.js?v=11";
 import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
   SLOT_ORDER, SLOT_NAMES, UNIQUES }
@@ -23,6 +24,9 @@ import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equip
 import { BOSS_TYPES, bossForDay, isBossDay } from "./bosses.js?v=1";
 import { initAudio, sfx, musicStart, musicStop, musicScene, toggleMusic, toggleSfx,
          isMusicOn, isSfxOn, audioState } from "./audio.js?v=3";
+import { initMonetization, onMonetization, IAP_ITEMS, REWARDED, priceOf, isOwned, markOwned,
+         buy as iapBuy, restore as iapRestore, showRewarded, showInterstitial, adsRemoved,
+         setBanner, isAndroid, MON } from "./monetization.js?v=1";
 import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
   from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
@@ -129,6 +133,9 @@ const state = {
   shakeT: 0,
   volleyCd: 0,       // кулдаун «Залпа»
   VOLLEY_CD: 25,     // секунд
+  iap: {},           // купленные товары: {noads:1, vip:1, starter:1, ...}
+  adGoldPending: 0,  // невыбранное золото за рекламу
+  lastInterstitial: 0,
 };
 
 // ---------- СОХРАНЕНИЕ ПРОГРЕССА (localStorage) ----------
@@ -141,6 +148,7 @@ function saveGame() {
       up: state.up, structs: state.structs, inv: state.inv,
       tree: state.tree, skillPts: state.skillPts,
       stats: state.stats, aim: state.aim,
+      iap: state.iap,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   } catch (e) { /* приватный режим — играем без сейва */ }
@@ -154,6 +162,7 @@ function loadGame() {
     state.era = d.era | 0; state.gold = d.gold | 0;
     state.day = d.day || 1; state.waveInDay = d.waveInDay | 0;
     state.up = Object.assign(state.up, d.up || {});
+    if (d.iap) state.iap = Object.assign(state.iap || {}, d.iap);
     if (d.structs) state.structs = d.structs;
     if (d.inv) state.inv = d.inv;
     if (d.tree) state.tree = d.tree;
@@ -236,34 +245,105 @@ function heroGear() {
   };
 }
 const weaponKind = () => (state.inv.weapon && state.inv.weapon.kind) || 'short';
+// редкость оружия определяет богатство эффекта снаряда (0..5)
+const weaponRar = () => {
+  const w = state.inv && state.inv.weapon;
+  if (!w) return 0;
+  // уникальные легендарки всегда 5
+  return (w.unique ? 5 : (w.rar | 0));
+};
 
 // ---------- Крошечные стрелы (рисуются кодом, зависят от оружия) ----------
+// Вид снаряда зависит от оружия (kind) и его редкости (rar 0..5).
+// Чем выше редкость — тем богаче эффект: трейл, свечение, искры, аура.
+const ARROW_STYLE = {
+  short: { wood: 0x8a6a3d, head: 0xe8e8f0, fletch: 0xd8d0c0, len: 7, trail: null },
+  long:  { wood: 0x7a5a32, head: 0xe8e8f0, fletch: 0xc94f3d, len: 9, trail: null },
+  bolt:  { wood: 0x57401f, head: 0xe8e8f0, fletch: 0xa8b0c0, len: 6, trail: 0x9aa8c0 },
+  heavy: { wood: 0x4a3418, head: 0xd8d8e8, fletch: 0x837c8c, len: 8, trail: 0x6a6058 },
+  arcane:{ wood: 0x6a3a9a, head: 0xd8a8ff, fletch: 0x9a4fe0, len: 7, trail: 0xc98af5 },
+};
+
 function drawArrow(p, a) {
   const x = Math.round(a.x), y = Math.round(a.y);
   const ang = Math.atan2(a.vy, a.vx);
   const dx = Math.cos(ang), dy = Math.sin(ang);
   const k = a.kind || 'short';
-  const L = k === 'long' ? 9 : k === 'bolt' ? 6 : k === 'heavy' ? 7 : 7;   // длина
+  const rar = a.rar | 0;
+  const st = ARROW_STYLE[k] || ARROW_STYLE.short;
+  const L = st.len;
+
+  // ---- ТРЕЙЛ: тянется за стрелой, длина и цвет зависят от редкости
+  const trailN = st.trail ? Math.min(14, 4 + rar * 2) : (rar >= 3 ? 4 : 0);
+  for (let i = 1; i <= trailN; i++) {
+    const f = i / (trailN + 1);
+    const tx = Math.round(x - dx * (L + i * 2.2));
+    const ty = Math.round(y - dy * (L + i * 2.2));
+    const alpha = (1 - f) * (0.20 + rar * 0.10);
+    const col = st.trail || (rar >= 4 ? 0xffd166 : 0x9aa8c0);
+    p.dot(tx, ty, col, alpha);
+    // «двойной» след на высоких редкостях
+    if (rar >= 4) p.dot(tx, ty + 1, col, alpha * 0.55);
+  }
+
+  // ---- АУРА вокруг стрелы (эпик и выше)
+  if (rar >= 4) {
+    const pulse = 0.35 + 0.25 * Math.sin((a.x + a.y) * 0.25);
+    p.dot(x, y, rar >= 5 ? 0xfff0a8 : 0xc98af5, pulse);
+    p.dot(Math.round(x - dx), Math.round(y - dy), rar >= 5 ? 0xffd166 : 0x9a4fe0, pulse * 0.7);
+  }
+
+  // ---- древко
   const tailX = Math.round(x - dx * L), tailY = Math.round(y - dy * L);
-  // древко
-  p.line(tailX, tailY, x, y, k === 'heavy' ? 0x57401f : 0x8a6a3d);
-  // наконечник
+  p.line(tailX, tailY, x, y, k === 'arcane' && rar >= 3 ? 0x8a4fe0 : st.wood);
+  // блик по древку у редких
+  if (rar >= 2) {
+    p.put(Math.round(x - dx * (L * 0.55)), Math.round(y - dy * (L * 0.55)), 0xfff0c0, 0.35);
+  }
+
+  // ---- наконечник (с доп. свечением на легендарке)
   const tipX = Math.round(x + dx * 2), tipY = Math.round(y + dy * 2);
-  const head = k === 'bolt' ? 0xe8e8f0 : k === 'arcane' ? 0xc98af5 : 0xe8e8f0;
-  p.put(tipX, tipY, head);
-  // оперение (перпендикуляр)
+  if (rar >= 5) {
+    p.dot(tipX, tipY, 0xfff0a8, 0.55);
+    p.put(tipX - 1, tipY, 0xffd166, 0.7);
+  }
+  p.put(tipX, tipY, st.head);
+
+  // ---- оперение
   const px = -dy, py = dx;
-  const fcol = k === 'arcane' ? 0x9a4fe0 : k === 'long' ? 0xc94f3d : 0xd8d0c0;
+  const fcol = rar >= 3 ? (rar >= 5 ? 0xffd166 : 0xc98af5) : st.fletch;
   p.put(tailX, tailY, fcol);
-  if (k === 'long') { p.put(Math.round(tailX + px), Math.round(tailY + py), fcol); p.put(Math.round(tailX - px), Math.round(tailY - py), fcol); }
+  if (k === 'long' || rar >= 3) {
+    p.put(Math.round(tailX + px), Math.round(tailY + py), fcol);
+    p.put(Math.round(tailX - px), Math.round(tailY - py), fcol);
+  }
+  if (rar >= 3) {
+    // светящиеся кончики оперения
+    p.dot(tailX, tailY, rar >= 5 ? 0xffe08a : 0xd8a8ff, 0.45);
+  }
   if (k === 'heavy') p.put(Math.round(x - dx), Math.round(y - dy), 0x837c8c);
-  if (k === 'arcane') p.dot(Math.round(x - dx * 3), Math.round(y - dy * 3), 0xe8d0ff, 0.6);
+  if (k === 'arcane') p.dot(Math.round(x - dx * 3), Math.round(y - dy * 3), 0xe8d0ff, 0.6 + rar * 0.05);
+
+  // ---- искры при высоких редкостях (мерцание нерегулярное)
+  if (rar >= 4) {
+    for (let i = 0; i < rar; i++) {
+      const ph = Math.sin((a.x * 0.7 + a.y * 1.3 + i * 2.1));
+      if (ph > 0.35) {
+        const sx = Math.round(x - dx * (6 + i * 3)) + (i % 2 ? 1 : -1);
+        const sy = Math.round(y - dy * (6 + i * 3));
+        p.dot(sx, sy, rar >= 5 ? 0xffffff : 0xe8c8ff, ph * 0.6);
+      }
+    }
+  }
   if (a.crit) p.put(x, y, 0xf4c542);
 }
 // бонусы экипировки и дерева навыков
 const EB = () => equipBonuses(state.inv);
 const TB = () => treeBonuses(state.tree);
-const totalBowDmg = () => bowDmg(dmgLvl(), state.era) * EB().dmg * TB().bowDmgMult;
+// VIP-статус («Хранитель») даёт +25% золота и +10% урона
+const VIP_GOLD = () => (MON.vip ? 1.25 : 1);
+const VIP_DMG = () => (MON.vip ? 1.10 : 1);
+const totalBowDmg = () => bowDmg(dmgLvl(), state.era) * EB().dmg * TB().bowDmgMult * VIP_DMG();
 const totalCrit = () => Math.min(0.85, critChance() + EB().crit + TB().critAdd);
 const maxCastleHp = () => Math.round((BAL.castleHp + TB().castleHpAdd) * TB().castleHpMult);
 
@@ -388,7 +468,7 @@ function fireVolley() {
           vy: Math.sin(state.aim) * BAL.arrowSpeed * 0.9,
           dmg: 0, crit,            // прямой урон ниже; стрелы летят для визуала
           pierceLeft: 0, hitIds: new Set(),
-          kind: weaponKind(), volley: { target: e, dmg },
+          kind: weaponKind(), rar: weaponRar(), volley: { target: e, dmg },
         });
       }
       state.shakeT = Math.max(state.shakeT, 0.15);
@@ -425,6 +505,7 @@ function shoot() {
       pierceLeft: pierce(),
       hitIds: new Set(),
       kind: weaponKind(),                 // вид стрелы зависит от оружия
+      rar: weaponRar(),                   // редкость → эффект снаряда
     });
   }
   state.firing = true;
@@ -484,7 +565,7 @@ function damageEnemy(e, dmg, crit = false) {
   }
   if (e.hp <= 0 && !e.dead) {
     e.dead = true;
-    const goldMult = (weather.weatherMods(state.weather?.kind ?? 'clear').gold ?? 1) * TB().goldMult * (1 + EB().goldBoost);
+    const goldMult = (weather.weatherMods(state.weather?.kind ?? 'clear').gold ?? 1) * TB().goldMult * (1 + EB().goldBoost) * VIP_GOLD();
     const g = Math.round(e.gold * goldMult);
     state.gold += g;
     state.stats.kills++;
@@ -542,6 +623,7 @@ function endEra() {
     (isRecord ? '<br><span class="newrec">🏆 НОВЫЙ РЕКОРД!</span>' : '') +
     `<br><span class="recsum">Рекорды: день <b>${r.bestDay}</b> · убийств <b>${r.bestKills}</b> · золота <b>${fmt(r.bestGold)}</b></span>`;
   document.getElementById('eraScreen').style.display = 'flex';
+  maybeInterstitial();   // межстраничная реклама на крупном событии (с антиспамом 90 c)
 }
 
 function newEra() {
@@ -637,12 +719,36 @@ function buildStructShop() {
 function buyStruct(def) {
   if (!state.running) return;
   const s = state.structs.find(x => x.key === def.key);
+  if (s.lvl >= MAX_STRUCT_LVL) return;              // максимум: легендарный вид достигнут
   const cost = structCost(def, s.lvl);
   if (state.gold < cost) return;
   state.gold -= cost;
   s.lvl++;
   sfx('build');
-  toast(s.lvl === 1 ? `🏗 ${def.name} построено!` : `${def.name} улучшено до ур. ${s.lvl}`);
+  if (s.lvl >= MAX_STRUCT_LVL) {
+    // легендарный уровень — корона и парящие камни
+    sfx('bossKill');
+    state.shakeT = Math.max(state.shakeT || 0, 0.35);
+    toast(`👑 ${def.name}: ЛЕГЕНДАРНЫЙ ур. ${MAX_STRUCT_LVL}!`);
+    for (let i = 0; i < 18; i++) {
+      state.particles.push({
+        x: def.x + (Math.random() - 0.5) * 44,
+        y: GROUND - 70 - Math.random() * 50,
+        vx: (Math.random() - 0.5) * 60,
+        vy: -40 - Math.random() * 50,
+        life: 0.9, max: 0.9, col: 0xffe08a, size: 1,
+      });
+    }
+  } else if (s.lvl === 1) {
+    toast(`🏗 ${def.name} построено!`);
+  } else {
+    const tier = s.lvl === 3 ? ' · ✨ золотая отделка'
+      : s.lvl === 6 ? ' · 🏰 второй ярус'
+      : s.lvl === 9 ? ' · 🗼 шпили и самоцветы'
+      : s.lvl === 12 ? ' · 🔮 руны и страж'
+      : '';
+    toast(`${def.name} улучшено до ур. ${s.lvl}${tier}`);
+  }
   renderStructShop(); updateHud();
 }
 function renderStructShop() {
@@ -650,12 +756,17 @@ function renderStructShop() {
     const el = document.querySelector(`.up[data-skey="${def.key}"]`);
     if (!el) continue;
     const s = state.structs.find(x => x.key === def.key);
+    const isMax = s.lvl >= MAX_STRUCT_LVL;
     const cost = structCost(def, s.lvl);
-    el.classList.toggle('no', state.gold < cost || !state.running);
+    el.classList.toggle('no', isMax || state.gold < cost || !state.running);
+    el.classList.toggle('maxed', isMax);
+    // название визуального тира — чтобы апгрейд читался не только цифрой
+    const tierName = ['золотая отделка', 'второй ярус', 'шпили и самоцветы', 'руны и страж', 'ЛЕГЕНДА'][
+      Math.min(4, Math.floor(Math.max(0, s.lvl - 1) / 3))];
     el.innerHTML = `<div class="t">${def.name}</div>` +
-      `<div class="lvl">${s.lvl === 0 ? 'не построено' : 'ур. ' + s.lvl}</div>` +
-      `<div class="cost">🪙 ${fmt(cost)}</div>` +
-      `<div class="desc">${def.desc}${s.lvl ? ' · ' + (structCd(def, s.lvl)).toFixed(1) + 'с' : ''}</div>`;
+      `<div class="lvl">${s.lvl === 0 ? 'не построено' : 'ур. ' + s.lvl + (isMax ? ' / ' + MAX_STRUCT_LVL : '')}</div>` +
+      (isMax ? `<div class="cost maxedCost">👑 МАКС</div>` : `<div class="cost">🪙 ${fmt(cost)}</div>`) +
+      `<div class="desc">${isMax ? tierName : def.desc}${s.lvl && !isMax ? ' · ' + (structCd(def, s.lvl)).toFixed(1) + 'с' : ''}</div>`;
   }
 }
 
@@ -1312,12 +1423,209 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.style.opacity = 0, 2200);
 }
 
+// ---------- МОНЕТИЗАЦИЯ: донат и реклама ----------
+// Подключаем мост к нативному слою (Android). В браузере всё работает в
+// режиме заглушки: покупки эмулируются, реклама сразу выдаёт награду.
+initMonetization(state);
+MON.giveGold = (n) => { state.gold += n; if (state.stats) state.stats.totalGold = (state.stats.totalGold || 0) + n; };
+MON.structs = state.structs;
+MON.persist = () => { state.iap = state.iap || {}; if (MON.removedAds) state.iap.noads = 1; if (MON.vip) state.iap.vip = 1; saveGame(); };
+
+if (state.iap && state.iap.noads) MON.removedAds = true;
+if (state.iap && state.iap.vip) MON.vip = true;
+
+onMonetization((kind, data) => {
+  if (kind === 'purchase' && data && data.ok) {
+    const r = data.res;
+    markOwned(data.id);
+    state.iap = state.iap || {};
+    state.iap[data.id] = 1;
+    if (r && r.effects && r.effects.length) toast('✅ ' + (r.item ? r.item.name : data.id) + ': ' + r.effects.join(', '));
+    sfx('buy');
+    renderDonate(); renderShop(); renderStructShop(); updateHud(); saveGame();
+  } else if (kind === 'purchase' && data && !data.ok) {
+    toast('Покупка не завершена');
+  } else if (kind === 'error') {
+    if (MON.lastError && /cancel/i.test(MON.lastError)) toast('Покупка отменена');
+    else if (MON.lastError) toast('Ошибка покупки');
+  } else if (kind === 'reward') {
+    // награда выдаётся в колбэке showRewarded
+  }
+});
+
+// --- выдаём награду за просмотр рекламы
+function grantRewarded(placement) {
+  if (placement === 'doubleGold') {
+    const amount = REWARDED.doubleGold.amount(state) * (MON.vip ? 1.25 : 1);
+    state.gold += Math.round(amount);
+    if (state.stats) state.stats.totalGold = (state.stats.totalGold || 0) + Math.round(amount);
+    toast('🎬 +' + fmt(Math.round(amount)) + ' золота за просмотр');
+  } else if (placement === 'freePts') {
+    state.skillPts = (state.skillPts || 0) + 1;
+    toast('🎬 +1 очко навыка');
+  } else if (placement === 'goldGift') {
+    const amount = REWARDED.goldGift.amount(state);
+    state.gold += amount;
+    if (state.stats) state.stats.totalGold = (state.stats.totalGold || 0) + amount;
+    toast('🎬 Подарок: +' + fmt(amount) + ' золота');
+  }
+  sfx('coin');
+  renderShop(); renderStructShop(); updateHud(); saveGame();
+}
+
+function watchAd(placement) {
+  if (adsRemoved()) { grantRewarded(placement); return; }
+  const r = showRewarded(placement, grantRewarded);
+  if (!r.ok) {
+    if (r.reason === 'busy') toast('Реклама ещё загружается…');
+    else toast('Реклама недоступна');
+  } else if (r.skipped) {
+    // реклама отключена покупкой — награда уже выдана
+  } else {
+    toast('Загружаем рекламу…');
+  }
+}
+
+// --- межстраничная реклама (не чаще раза в 90 c, и только по крупным событиям)
+function maybeInterstitial() {
+  if (adsRemoved()) return;
+  const now = Date.now();
+  if (now - (state.lastInterstitial || 0) < 90000) return;
+  state.lastInterstitial = now;
+  showInterstitial();
+}
+
+// --- отрисовка панели доната
+function renderDonate() {
+  const wrap = document.getElementById('donateList');
+  if (!wrap) return;
+  const premium = IAP_ITEMS.filter(i => i.kind === 'nonconsumable');
+  const consum = IAP_ITEMS.filter(i => i.kind === 'consumable');
+  let h = '<div class="dsec">Наборы</div>';
+  for (const it of premium) h += donateCard(it, true);
+  h += '<div class="dsec">Золото и поддержка</div>';
+  for (const it of consum) h += donateCard(it, false);
+  h += '<div class="dfoot">' +
+       '<button class="dbtn small" id="restoreBtn">Восстановить покупки</button>' +
+       '<span class="dnote">' + (isAndroid() ? 'Оплата через Google Play' : 'Демо-режим в браузере') + '</span></div>';
+  wrap.innerHTML = h;
+  const rb = document.getElementById('restoreBtn');
+  if (rb) bindTap(rb, () => { iapRestore(); toast('Восстанавливаем покупки…'); });
+  wrap.querySelectorAll('[data-buy-iap]').forEach(el => {
+    bindTap(el, () => onBuyIap(el.dataset.buyIap));
+  });
+}
+
+function donateCard(it, owned_once) {
+  const owned = owned_once && (isOwned(it.id) || (state.iap && state.iap[it.id]));
+  const price = priceOf(it.id);
+  const cls = owned ? 'ditem owned' : 'ditem';
+  return `<div class="${cls}">
+    <div class="dic ic_${it.icons}">${donateGlyph(it.icons)}</div>
+    <div class="dbody">
+      <div class="dname">${it.name}${it.bonus ? ' <span class="dbonus">' + it.bonus + '</span>' : ''}</div>
+      <div class="ddesc">${it.desc}</div>
+    </div>
+    ${owned
+      ? '<div class="dprice own">КУПЛЕНО</div>'
+      : `<div class="dprice" data-buy-iap="${it.id}">${price}</div>`}
+  </div>`;
+}
+
+function donateGlyph(k) {
+  return { coin: '🪙', chest: '🎁', star: '⭐', crown: '👑', noads: '🚫', heart: '❤️' }[k] || '💎';
+}
+
+function onBuyIap(id) {
+  const item = IAP_ITEMS.find(i => i.id === id);
+  if (!item) return;
+  const r = iapBuy(id);
+  if (!r.ok) {
+    if (r.reason === 'owned') toast('Уже куплено');
+    else toast('Покупка недоступна');
+    return;
+  }
+  if (r.simulated) {
+    // браузер: сразу применяем покупку (демо для проверки UI)
+    toast('💳 Демо-покупка: ' + item.name);
+    MON.giveGold && item.give && item.give.gold && MON.giveGold(item.give.gold);
+    if (item.give && item.give.noAds) { MON.removedAds = true; }
+    if (item.give && item.give.vip) { MON.vip = true; }
+    markOwned(id);
+    state.iap = state.iap || {}; state.iap[id] = 1;
+    renderDonate(); renderShop(); renderStructShop(); updateHud(); saveGame();
+  } else {
+    toast('Открываем оплату…');
+  }
+}
+
+function openDonate() {
+  const m = document.getElementById('donateModal');
+  if (!m) return;
+  renderDonate();
+  m.style.display = 'flex';
+  setBanner(false);
+}
+function closeDonate() {
+  const m = document.getElementById('donateModal');
+  if (m) m.style.display = 'none';
+  setBanner(true);
+}
+
 // ---------- Атмосферные эффекты ----------
 // Факелы — по краям верхней площадки стены (зубцы на GROUND-74), не перекрывают лучника.
 const ambient = {
   torchL: createFx(torchFx, { x: 18, y: GROUND - 128, scale: 1 }),
   torchR: createFx(torchFx, { x: 82, y: GROUND - 128, scale: 1 }),
 };
+
+// --- панель бонусов за рекламу
+function renderAdPanel() {
+  const wrap = document.getElementById('adList');
+  if (!wrap) return;
+  if (adsRemoved()) {
+    wrap.innerHTML = '<div class="noadsNote">✅ Реклама отключена покупкой. Все бонусы доступны сразу.</div>';
+  }
+  let h = '';
+  for (const key in REWARDED) {
+    const r = REWARDED[key];
+    const amt = r.amount(state);
+    const label = key === 'freePts' ? '+1 очко' : '+' + fmt(amt);
+    h += `<div class="adcard">
+      <div class="dic">${key === 'freePts' ? '⭐' : '��'}</div>
+      <div class="dbody">
+        <div class="dname">${r.name}</div>
+        <div class="ddesc">${r.desc} · награда ${label}</div>
+      </div>
+      <div class="adgo" data-ad="${key}">СМОТРЕТЬ</div>
+    </div>`;
+  }
+  if (adsRemoved()) {
+    // при отключённой рекламе меняем подпись: награда сразу
+    h = h.replace(/СМОТРЕТЬ/g, 'ЗАБРАТЬ');
+  }
+  h += '<div class="dfoot"><span class="dnote">Награда начисляется после просмотра</span></div>';
+  wrap.innerHTML = h;
+  wrap.querySelectorAll('[data-ad]').forEach(el => bindTap(el, () => {
+    el.classList.add('busy');
+    setTimeout(() => el.classList.remove('busy'), 1200);
+    watchAd(el.dataset.ad);
+    closeAdPanel();
+  }));
+}
+
+function openAdPanel() {
+  const m = document.getElementById('adModal');
+  if (!m) return;
+  renderAdPanel();
+  m.style.display = 'flex';
+  setBanner(false);
+}
+function closeAdPanel() {
+  const m = document.getElementById('adModal');
+  if (m) m.style.display = 'none';
+  setBanner(true);
+}
 
 // ---------- Главный цикл ----------
 let last = performance.now();
@@ -1755,6 +2063,29 @@ function updateVolleyBtn() {
 
 bindTap(document.getElementById('treeBtn'), openTree);
 bindTap(document.getElementById('invBtn'), openInv);
+// монетизация: донат и бонусы за рекламу
+bindTap(document.getElementById('donateBtn'), openDonate);
+// баннер рекламы: показываем вне боя, скрываем во время осады
+let _bannerState = null;
+function syncBanner() {
+  // в бою и в модалках баннер не нужен
+  const inBattle = !!state.running;
+  const modalOpen = ['donateModal', 'adModal', 'invModal', 'treeModal'].some(id => {
+    const m = document.getElementById(id);
+    return m && m.style.display === 'flex';
+  });
+  const want = !inBattle && !modalOpen;
+  if (_bannerState !== want) { _bannerState = want; setBanner(want); }
+}
+setBanner(true); _bannerState = true;
+bindTap(document.getElementById('donateClose'), closeDonate);
+bindTap(document.getElementById('adBtn'), openAdPanel);
+bindTap(document.getElementById('adClose'), closeAdPanel);
+// клик по затемнению закрывает панели
+['donateModal', 'adModal'].forEach(id => {
+  const m = document.getElementById(id);
+  if (m) m.addEventListener('click', (e) => { if (e.target === m) { closeDonate(); closeAdPanel(); } });
+});
 // счётчик очков навыков в HUD
 function updateSkillBadge() {
   const el = document.getElementById('skillPts');
@@ -1762,7 +2093,23 @@ function updateSkillBadge() {
   el && (el.style.color = state.skillPts > 0 ? '#7fc97f' : '#e8d5a3');
 }
 const _updateHud = updateHud;
-updateHud = function () { _updateHud(); updateSkillBadge(); renderTreePtsOnly(); };
+updateHud = function () { _updateHud(); updateSkillBadge(); renderTreePtsOnly(); updateVipBadge(); syncBanner(); };
+// VIP-статус показываем рядом с золотом
+function updateVipBadge() {
+  const g = document.getElementById('gold');
+  if (!g) return;
+  let b = document.getElementById('vipBadge');
+  if (MON.vip || (state.iap && state.iap.vip)) {
+    if (!b) {
+      b = document.createElement('span');
+      b.id = 'vipBadge';
+      b.textContent = '👑';
+      b.title = 'Статус Хранителя: +25% золота, +10% урона';
+      b.style.cssText = 'margin-left:4px;cursor:help';
+      g.parentNode.appendChild(b);
+    }
+  } else if (b) b.remove();
+}
 function renderTreePtsOnly() {
   const pts = document.getElementById('treePts');
   if (pts) pts.textContent = `· очков: ${state.skillPts}`;

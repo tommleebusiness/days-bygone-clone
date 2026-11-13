@@ -23,6 +23,7 @@ copyTree('vendor');
 copyTree('sprites.js');
 copyTree('structures.js');
 copyTree('bosses.js');
+copyTree('structure-upgrades.js');
 
 const { Painter } = await import('file://' + path.join(OUT, 'vendor/pixelfx/core/painter.js').replace(/\\/g, '/'));
 const sprites = await import('file://' + path.join(OUT, 'sprites.js').replace(/\\/g, '/'));
@@ -46,8 +47,8 @@ sprites.drawCastle(p, GROUND, 0.75, t);
 
 // постройки: 5 типов, разные уровни
 const structs = [
-  { key: 'catapult', lvl: 5 }, { key: 'ballista', lvl: 3 },
-  { key: 'tower', lvl: 4 }, { key: 'mage', lvl: 5 }, { key: 'cauldron', lvl: 2 },
+  { key: 'catapult', lvl: 15 }, { key: 'ballista', lvl: 9 },
+  { key: 'tower', lvl: 12 }, { key: 'mage', lvl: 15 }, { key: 'cauldron', lvl: 6 },
 ];
 structures.drawStructures(p, structs, t);
 

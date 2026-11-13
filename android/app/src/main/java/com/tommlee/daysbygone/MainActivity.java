@@ -1,38 +1,55 @@
 package com.tommlee.daysbygone;
 
 import android.app.Activity;
+import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.WebChromeClient;
+import android.widget.FrameLayout;
 
 import androidx.webkit.WebViewAssetLoader;
 
+/**
+ * Оболочка игры «Дни Минувшие»: WebView + донат (Google Play Billing) + реклама (AdMob).
+ */
 public class MainActivity extends Activity {
 
     private WebView web;
+    private BillingManager billing;
+    private AdsManager ads;
+    private FrameLayout root;
+    private static Context appCtx;
+
+    public static Context appContext() { return appCtx; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        appCtx = getApplicationContext();
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         hideSystemUi();
 
         // ES-модули (import ... from "./x.js") НЕ грузятся по file:// из-за CORS.
-        // WebViewAssetLoader отдаёт ассеты по https://appassets.androidplatform.net/ —
-        // это настоящий https-origin, поэтому модули работают.
+        // WebViewAssetLoader отдаёт ассеты по https://appassets.androidplatform.net/
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
+        // корневой FrameLayout: WebView + слой для баннера поверх
+        root = new FrameLayout(this);
         web = new WebView(this);
+        root.addView(web, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -70,12 +87,20 @@ public class MainActivity extends Activity {
         web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         web.setOnLongClickListener(v -> true);
 
-        // отладочный мост, чтобы проверить, что игра реально стартовала
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        setContentView(web);
+        // ---- нативный слой: биллинг + реклама + мост в JS ----
+        billing = new BillingManager(this);
+        ads = new AdsManager(this, root);
+        IapBridge.attach(web);
+        IapBridge.setBilling(billing);
+        IapBridge.setAds(ads);
+        web.addJavascriptInterface(new IapBridge(), "Android");
+        ads.init();
+
+        setContentView(root);
         web.loadUrl("https://appassets.androidplatform.net/assets/game/index.html");
     }
 
@@ -110,5 +135,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web != null) web.onResume();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (ads != null) ads.destroy();
+        if (billing != null) billing.destroy();
+        if (web != null) { web.destroy(); web = null; }
+        super.onDestroy();
     }
 }

@@ -23,3 +23,12 @@ _tmp_*.js
 pixelfx/
 # assets генерируются gradle-задачей copyGameAssets при сборке
 android/app/src/main/assets/game/
+
+# Рендер-стенды (генерируются node _render.mjs / _tiers.mjs)
+_render/
+
+# Старые сборки в корне (актуальные лежат в dist/)
+/days-bygone-*.apk
+
+# Временные исходники стендов
+store/**/_raw*

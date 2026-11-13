@@ -10,8 +10,8 @@ android {
         applicationId "com.tommlee.daysbygone"
         minSdk 24
         targetSdk 34
-        versionCode 10
-        versionName "2.4"
+        versionCode 15
+        versionName "3.1"
     }
 
     signingConfigs {
@@ -39,6 +39,10 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.11.0'
+    // Внутриигровые покупки (донат)
+    implementation 'com.android.billingclient:billing:6.2.1'
+    // Платная реклама (баннер, межстраничная, rewarded)
+    implementation 'com.google.android.gms:play-services-ads:23.3.0'
 }
 
 // Копируем игру в assets перед сборкой — единый источник правды (days-bygone-clone/game)
@@ -48,6 +52,9 @@ def assetsDir = file("src/main/assets/game")
 tasks.register('copyGameAssets', Copy) {
     from gameSrc
     into assetsDir
+    // dev-скрипты и временные стенды в игру не кладём
+    exclude '**/_*.mjs', '**/_*.py', '**/_*.js', '**/_*.html'
+    exclude '**/.DS_Store', '**/Thumbs.db'
 }
 
 tasks.register('cleanGameAssets', Delete) {
