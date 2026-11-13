@@ -3,7 +3,7 @@
 
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { TIER_PAL, drawHighTierDeco, drawSecondTier, drawSpires, drawGargoyle,
-         drawCrown, drawLevitating } from "./structure-upgrades.js?v=3";
+         drawCrown, drawLevitating } from "./structure-upgrades.js?v=4";
 
 const COL = {
   wood: hex('#7a5a32'), woodD: hex('#57401f'), woodDD: hex('#3a2a14'),

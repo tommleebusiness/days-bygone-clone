@@ -14,10 +14,10 @@ import * as torchFx from "./fx/small-torch.js?v=4";
 import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg }
   from "./balance.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
-import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=13";
+import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=14";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles,
          structCost, structCd, MAX_STRUCT_LVL }
-  from "./structures.js?v=11";
+  from "./structures.js?v=12";
 import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
   SLOT_ORDER, SLOT_NAMES, UNIQUES }
   from "./loot.js?v=4";

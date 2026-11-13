@@ -81,14 +81,16 @@ export function drawSun(p, x, y, time = 0) {
            x + Math.round(Math.cos(a) * r2), y + Math.round(Math.sin(a) * r2),
            COL.sunGlow, 0.7 + pulse * 0.3);
   }
-  // гало: 3 чётких кольца с плавным затуханием (без шахматки)
-  const RINGS = [[196, 324, 0.55], [324, 576, 0.34], [576, 900, 0.18], [900, 1296, 0.09]];
-  for (const [r0, r1, a] of RINGS) {
-    const rr1 = Math.sqrt(r1);
-    for (let dy = -rr1; dy <= rr1; dy++) {
-      for (let dx = -rr1; dx <= rr1; dx++) {
+  // гало: БЕЗ чётких колец. Сплошной мягкий ореол через МНОГО тонких слоёв
+  // с очень низкой альфой — они сливаются в плавное свечение без читаемых границ.
+  for (let r = 18; r <= 34; r++) {
+    const a = 0.16 * (1 - (r - 18) / 16);
+    if (a < 0.02) continue;
+    for (let dy = -r; dy <= r; dy++) {
+      const span = Math.floor(Math.sqrt(Math.max(0, r * r - dy * dy)));
+      for (let dx = -span; dx <= span; dx++) {
         const d2 = dx * dx + dy * dy;
-        if (d2 > r0 && d2 <= r1) p.put(x + dx, y + dy, COL.sunGlow, a);
+        if (d2 > (r - 1) * (r - 1) && d2 <= r * r) p.put(x + dx, y + dy, COL.sunGlow, a);
       }
     }
   }

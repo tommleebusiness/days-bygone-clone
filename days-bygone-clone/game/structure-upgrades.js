@@ -141,46 +141,30 @@ export function drawRunes(p, x, topY, H, st, t, pal) {
 // ---------- аура вокруг постройки (тир 4+), рисуется ПОД постройкой
 export function drawStructureAura(p, x, topY, W2, H, st, t, pal) {
   if (!st.aura) return;
-  const cx = x, cy = topY + H / 2;
-  const rx = W2 + 12, ry = H / 2 + 10;
-  const strong = st.tier >= 5 ? 1.5 : 1;   // у легендарных — вдвое заметнее
-  // плотный ореол: три кольца с ВЫСОКОЙ альфой (dither не съедает)
-  for (let ring = 3; ring >= 1; ring--) {
-    const k = ring / 3;
-    const a = Math.min(0.85, (0.34 + (1 - k) * 0.26) * strong);
-    const col = ring === 3 ? mixHex(pal.aura, 0xffffff, 0.35) : pal.aura;
-    const n = Math.round((rx + ry) * 3.0);
-    for (let i = 0; i < n; i++) {
-      const ang = (i / n) * Math.PI * 2;
-      const wob = 1 + Math.sin(ang * 5 + t * 1.4) * 0.035;
-      put(p, cx + Math.cos(ang) * (rx + ring * 2) * wob,
-        cy + Math.sin(ang) * (ry + ring * 2) * wob, col, a);
+  // НИКАКИХ колец вокруг силуэта! Раньше здесь были 3 концентрических эллипса
+  // на каждую из 8 построек: они накладывались друг на друга, рисовались поверх
+  // кирпичей/флагов и читались как «непонятные кольца».
+  // Теперь — узкий световой столбик НАД крышей (магия поднимается от башни).
+  const cx = Math.round(x);
+  const wTop = Math.max(3, Math.min(7, Math.round(W2 / 3)));
+  const hGlow = 9 + (st.tier >= 5 ? 6 : 0);
+  for (let yy = 0; yy < hGlow; yy++) {
+    const a = (1 - yy / hGlow) * 0.5;
+    const spread = 1 + Math.round(yy / 4);
+    for (let k = -wTop; k <= wTop; k++) {
+      if (Math.abs(k) > spread) continue;
+      p.dot(cx + k, topY - yy, pal.aura, a * (1 - Math.abs(k) / (spread + 1)));
     }
   }
-  // второй проход — утолщаем кольцо (2px), чтобы читалось как свечение
-  for (let ring = 2; ring >= 1; ring--) {
-    const a = Math.min(0.55, 0.24 * strong);
-    const n = Math.round((rx + ry) * 3.0);
-    for (let i = 0; i < n; i++) {
-      const ang = (i / n) * Math.PI * 2;
-      const wob = 1 + Math.sin(ang * 5 + t * 1.4) * 0.035;
-      const px = cx + Math.cos(ang) * (rx + ring * 2) * wob;
-      const py = cy + Math.sin(ang) * (ry + ring * 2) * wob;
-      put(p, px, py + Math.sign(py - cy || 1), pal.aura, a);
-    }
-  }
-  // восходящие искры (крупнее и ярче)
-  for (let i = 0; i < 6; i++) {
-    const ph = (t * 0.5 + i * 0.19) % 1;
-    const sy = topY + H - ph * (H + 20);
-    const sx = cx + Math.sin(i * 2.3 + t) * (W2 - 1);
-    const a = (1 - ph) * 0.95;
-    if (a <= 0.1) continue;
-    p.dot(sx, sy, pal.aura, a);
-    if (st.tier >= 5 && a > 0.5) p.dot(sx, sy, 0xffffff, a * 0.8);
+  // 3 восходящие искры (было 6 — тоже шум)
+  for (let i = 0; i < 3; i++) {
+    const ph = (t * 0.6 + i * 0.33) % 1;
+    const sy = topY + H - ph * (H + 16);
+    const sx = cx + Math.sin(i * 2.3 + t) * Math.min(W2 - 1, 6);
+    const a = (1 - ph) * 0.9;
+    if (a > 0.12) p.dot(sx, sy, pal.aura, a);
   }
 }
-
 // смешать два ABGR-цвета (внутренний помощник)
 function mixHex(c1, c2, k) {
   const r1 = c1 & 255, g1 = (c1 >> 8) & 255, b1 = (c1 >> 16) & 255;
