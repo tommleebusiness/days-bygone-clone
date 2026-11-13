@@ -451,6 +451,52 @@ body.narrow .dic{width:30px;height:30px;flex-basis:30px;font-size:16px}
 body.narrow .dname{font-size:12px}
 body.narrow .ddesc{font-size:10px}
 body.narrow .dprice{font-size:11px;padding:5px 8px}
+
+/* ================= ЗАДАНИЯ И ДОСТИЖЕНИЯ ================= */
+.hbtn.quest{background:linear-gradient(180deg,#b8872f,#7a5414);border-color:#ffd166}
+.hbtn.quest .badge{color:#ffe08a;font-weight:bold}
+.hbtn.quest.hasnew{box-shadow:0 0 10px rgba(255,209,102,.8);border-color:#ffe08a}
+
+#questModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(5,3,1,.93);z-index:14;padding:10px}
+.qpanel{width:min(620px,96vw);max-height:92vh;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,#241a10,#120d06);border:2px solid #6b5433;
+  border-radius:6px;box-shadow:0 8px 32px #000;overflow:hidden}
+.qhead{display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;border-bottom:2px solid #6b5433;background:#2e2313}
+.qhead h2{font-size:15px;letter-spacing:1px;color:#ffd166;margin:0}
+.qclose{min-height:0;padding:2px 8px;font-size:12px}
+.qtabs{display:flex;gap:0;border-bottom:1px solid #4a3a22;background:#1a1208}
+.qtab{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;
+  color:#9a8763;font:inherit;font-size:11px;padding:7px 4px;cursor:pointer;letter-spacing:1px}
+.qtab:hover{color:#d8c68a}
+.qtab.active{color:#ffd166;border-bottom-color:#ffd166;background:#241a10}
+.qbody{overflow-y:auto;padding:8px 10px 12px;scrollbar-width:thin}
+.qbody::-webkit-scrollbar{width:6px}
+.qbody::-webkit-scrollbar-thumb{background:#6b5433;border-radius:3px}
+.qitem{display:flex;align-items:center;gap:9px;padding:7px 9px;margin-bottom:6px;
+  background:#2a1f11;border:1px solid #4a3a22;border-radius:4px}
+.qitem.done{background:linear-gradient(180deg,#2a3a1a,#182410);border-color:#5a8a3a}
+.qitem.claimed{opacity:.55;border-color:#3a3020}
+.qic{width:30px;height:30px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;background:#1a1208;border:1px solid #4a3a22;border-radius:5px}
+.qmain{flex:1;min-width:0}
+.qname{color:#f4e6bd;font-size:12px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qdesc{color:#b0a184;font-size:10px;margin-top:1px}
+.qbar{height:5px;background:#1a1208;border-radius:3px;margin-top:4px;overflow:hidden}
+.qbarfill{height:100%;background:linear-gradient(90deg,#5a8a3a,#8fc95a);border-radius:3px;transition:width .25s}
+.qprog{color:#7fc97f;font-size:9px;margin-top:2px;text-align:right}
+.qreward{color:#ffd166;font-size:10px;white-space:nowrap;flex:0 0 auto}
+.qget{background:linear-gradient(180deg,#5a8a3a,#3a5a1a);border:1px solid #8fc95a;
+  color:#f0ffe0;font:inherit;font-size:10px;padding:5px 9px;border-radius:4px;cursor:pointer;flex:0 0 auto}
+.qget:hover{filter:brightness(1.15)}
+.qsection{color:#9a8763;font-size:9px;letter-spacing:1px;margin:8px 2px 5px;border-bottom:1px solid #3a2a18;padding-bottom:3px}
+body.short .qitem{padding:5px 7px;margin-bottom:4px;gap:7px}
+body.short .qic{width:24px;height:24px;flex-basis:24px;font-size:14px}
+body.short .qname{font-size:11px}
+body.short .qdesc{font-size:9px}
+body.short #questModal{padding:4px}
+
 </style>
 </head>
 <body>
@@ -465,6 +511,7 @@ body.narrow .dprice{font-size:11px;padding:5px 8px}
     <button class="hbtn volley" id="volleyBtn">🏹<span class="lbl"> Залп</span><span class="vcd" id="volleyCd"></span></button>
     <button class="hbtn" id="treeBtn">🌳<span class="lbl"> Навыки</span></button>
     <button class="hbtn" id="invBtn">🎒<span class="lbl"> Экипировка</span></button>
+    <button class="hbtn quest" id="questBtn">🏆<span class="lbl"> Задания</span><span class="badge" id="questBadge"></span></button>
     <button class="hbtn" id="musicBtn">🎵<span class="lbl"> Музыка</span></button>
     <button class="hbtn" id="sfxBtn">🔊<span class="lbl"> Звук</span></button>
     <button class="hbtn ad" id="adBtn">🎬<span class="lbl"> Бонус</span></button>
@@ -520,6 +567,24 @@ body.narrow .dprice{font-size:11px;padding:5px 8px}
   </div><!-- /stage -->
   <div id="shop"></div>
 </div>
-<script type="module" src="main.js?v=66"></script>
+
+<div id="questModal" class="modal" style="display:none">
+  <div class="qpanel">
+    <div class="qhead">
+      <h2>🏆 Задания</h2>
+      <button class="btn qclose" id="questClose">✕</button>
+    </div>
+    <div class="qtabs">
+      <button class="qtab active" data-tab="daily">Ежедневные</button>
+      <button class="qtab" data-tab="ach">Достижения</button>
+    </div>
+    <div class="qbody">
+      <div id="qDaily" class="qlist"></div>
+      <div id="qAch" class="qlist" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="main.js?v=69"></script>
 </body>
 </html>

@@ -27,6 +27,7 @@ import { initAudio, sfx, musicStart, musicStop, musicScene, toggleMusic, toggleS
 import { initMonetization, onMonetization, IAP_ITEMS, REWARDED, priceOf, isOwned, markOwned,
          buy as iapBuy, restore as iapRestore, showRewarded, showInterstitial, adsRemoved,
          setBanner, isAndroid, MON } from "./monetization.js?v=1";
+import { ACHIEVEMENTS, pickDaily, todayKey, questProgress } from './quests.js?v=2';
 import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
   from "./fx/effects.js?v=2";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
@@ -118,7 +119,7 @@ const state = {
   loot: [],
   particles: [],
   projectiles: [],
-  stats: { kills: 0, daysSurvived: 1, totalGold: 0 },
+  stats: { kills: 0, daysSurvived: 1, totalGold: 0, bossKills: 0, crits: 0, lootFound: 0 },
   time: 0,
   fireCooldown: 0,
   bowPull: 0, recoilT: 0, sparkT: 0,
@@ -136,6 +137,9 @@ const state = {
   iap: {},           // купленные товары: {noads:1, vip:1, starter:1, ...}
   adGoldPending: 0,  // невыбранное золото за рекламу
   lastInterstitial: 0,
+  ach: {},           // полученные достижения: {id: 1}
+  daily: null,       // текущие задания: {date, snapshot, taken:{key:1}}
+  seenAch: 0,        // сколько достижений было на момент последнего просмотра
 };
 
 // ---------- СОХРАНЕНИЕ ПРОГРЕССА (localStorage) ----------
@@ -148,7 +152,7 @@ function saveGame() {
       up: state.up, structs: state.structs, inv: state.inv,
       tree: state.tree, skillPts: state.skillPts,
       stats: state.stats, aim: state.aim,
-      iap: state.iap,
+      iap: state.iap, ach: state.ach, daily: state.daily,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   } catch (e) { /* приватный режим — играем без сейва */ }
@@ -169,6 +173,8 @@ function loadGame() {
     state.skillPts = d.skillPts | 0;
     state.castleHp = Math.min(d.castleHp || maxCastleHp(), maxCastleHp());
     state.stats = Object.assign(state.stats, d.stats || {});
+    if (d.ach) state.ach = d.ach;
+    if (d.daily) state.daily = d.daily;
     if (typeof d.aim === 'number') state.aim = d.aim;
     return true;
   } catch (e) { return false; }
@@ -545,7 +551,10 @@ function damageEnemy(e, dmg, crit = false) {
   e.hitT = 0.12;
   hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
   sfx(crit ? 'crit' : 'hit');
-  if (crit) state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
+  if (crit) {
+    state.stats.crits = (state.stats.crits || 0) + 1;
+    state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
+  }
   // вампиризм: криты лечат стену (узел «Вампиризм»)
   const ls = TB().lifesteal + EB().lifesteal;
   if (crit && ls > 0) {
@@ -569,6 +578,7 @@ function damageEnemy(e, dmg, crit = false) {
     const g = Math.round(e.gold * goldMult);
     state.gold += g;
     state.stats.kills++;
+    if (e.isBoss) state.stats.bossKills = (state.stats.bossKills || 0) + 1;
     state.stats.totalGold += g;
     coinFx(e.x, e.y - 8);
     sfx(e.isBoss ? 'bossKill' : 'kill');
@@ -590,6 +600,7 @@ function maybeDropLoot(e) {
   for (let i = 0; i < rolls; i++) {
     const item = rollDrop(state.day, boss && Math.random() < 0.5);
     state.loot.push({ x: e.x + (i - rolls / 2) * 8, y: e.y - 8, item, t: 0 });
+    state.stats.lootFound = (state.stats.lootFound || 0) + 1;
   }
 }
 
@@ -2061,6 +2072,158 @@ function updateVolleyBtn() {
   }
 }
 
+// ---------- ДОСТИЖЕНИЯ И ЕЖЕДНЕВНЫЕ ЗАДАНИЯ ----------
+function ensureDaily() {
+  const key = todayKey();
+  if (!state.daily || state.daily.date !== key) {
+    // снимок статистики на начало суток: прогресс считается с нуля каждый день
+    const snap = {};
+    for (const q of pickDaily(key)) snap[q.metric] = state.stats[q.metric] || 0;
+    state.daily = { date: key, snapshot: snap, taken: {} };
+    saveGame();
+  }
+  return state.daily;
+}
+
+function dailyQuests() { return ensureDaily().snapshot ? pickDaily(state.daily.date) : []; }
+
+function achCount() { return Object.keys(state.ach || {}).length; }
+
+function checkAchievements() {
+  let gained = 0;
+  for (const a of ACHIEVEMENTS) {
+    if (state.ach[a.id]) continue;
+    let ok = false;
+    try { ok = a.cond(state); } catch (e) { ok = false; }
+    if (!ok) continue;
+    state.ach[a.id] = 1;
+    state.gold += a.reward;
+    state.stats.totalGold += a.reward;
+    gained += a.reward;
+    toast(`🏆 ${a.name}: +${fmt(a.reward)} золота`);
+    sfx('bossKill');
+  }
+  if (gained) { saveGame(); updateQuestBadge(); }
+  return gained;
+}
+
+function questReadyCount() {
+  const d = ensureDaily();
+  let n = 0;
+  for (const q of pickDaily(d.date)) {
+    const done = questProgress(q, state.stats, d.snapshot) >= q.target;
+    if (done && !d.taken[q.key]) n++;
+  }
+  // незабранные достижения
+  n += Math.max(0, achCount() - (state.seenAch || 0));
+  return n;
+}
+
+function updateQuestBadge() {
+  const el = document.getElementById('questBadge');
+  const btn = document.getElementById('questBtn');
+  if (!el || !btn) return;
+  const n = questReadyCount();
+  el.textContent = n ? ` ${n}` : '';
+  btn.classList.toggle('hasnew', n > 0);
+}
+
+let questTab = 'daily';
+function openQuests() {
+  state.seenAch = achCount();
+  updateQuestBadge();
+  saveGame();
+  document.getElementById('questModal').style.display = 'flex';
+  renderQuests();
+  setBanner(false);
+}
+function closeQuests() {
+  document.getElementById('questModal').style.display = 'none';
+  syncBanner(true);
+}
+function setQuestTab(tab) {
+  questTab = tab;
+  document.querySelectorAll('.qtab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('qDaily').style.display = tab === 'daily' ? '' : 'none';
+  document.getElementById('qAch').style.display = tab === 'ach' ? '' : 'none';
+  renderQuests();
+}
+
+function renderQuests() {
+  const d = ensureDaily();
+  const wrap = questTab === 'daily' ? document.getElementById('qDaily') : document.getElementById('qAch');
+  if (!wrap) return;
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  if (questTab === 'daily') {
+    const qs = pickDaily(d.date);
+    const rows = qs.map(q => {
+      const cur = Math.min(q.target, questProgress(q, state.stats, d.snapshot));
+      const done = cur >= q.target;
+      const claimed = !!d.taken[q.key];
+      const pct = Math.round(cur / q.target * 100);
+      const action = claimed
+        ? '<span class="qreward">✓ получено</span>'
+        : done
+          ? `<button class="qget" data-qclaim="${esc(q.key)}">Забрать</button>`
+          : `<span class="qreward">🪙 ${fmt(q.reward)}</span>`;
+      return `<div class="qitem ${claimed ? 'claimed' : done ? 'done' : ''}">
+        <div class="qic">${done ? '✅' : '📜'}</div>
+        <div class="qmain">
+          <div class="qname">${esc(q.text)}</div>
+          <div class="qbar"><div class="qbarfill" style="width:${pct}%"></div></div>
+          <div class="qprog">${fmt(cur)} / ${fmt(q.target)}</div>
+        </div>${action}</div>`;
+    }).join('');
+    wrap.innerHTML = `<div class="qsection">ОБНОВЛЯЮТСЯ КАЖДЫЙ ДЕНЬ · ${esc(d.date)}</div>${rows}`;
+    wrap.querySelectorAll('[data-qclaim]').forEach(btn => {
+      bindTap(btn, () => claimQuest(btn.dataset.qclaim));
+    });
+  } else {
+    const done = ACHIEVEMENTS.filter(a => state.ach[a.id]);
+    const todo = ACHIEVEMENTS.filter(a => !state.ach[a.id]);
+    const row = (a, got) => {
+      // прогресс: сколько осталось до открытия
+      let bar = '';
+      if (!got && typeof a.prog === 'function') {
+        let cur = 0, goal = 1;
+        try { const pr = a.prog(state); cur = Math.min(pr[0], pr[1]); goal = pr[1] || 1; } catch (e) { }
+        const pct = Math.max(0, Math.min(100, Math.round(cur / goal * 100)));
+        bar = `<div class="qbar"><div class="qbarfill" style="width:${pct}%"></div></div>` +
+              `<div class="qprog">${fmt(cur)} / ${fmt(goal)}</div>`;
+      }
+      return `<div class="qitem ${got ? 'done' : ''}">
+        <div class="qic">${a.icon}</div>
+        <div class="qmain"><div class="qname">${esc(a.name)}</div>
+        <div class="qdesc">${esc(a.desc)}</div>${bar}</div>
+        <span class="qreward">${got ? '✓ +' + fmt(a.reward) : '🪙 ' + fmt(a.reward)}</span></div>`;
+    };
+    wrap.innerHTML = `<div class="qsection">ПОЛУЧЕНО ${done.length} / ${ACHIEVEMENTS.length}</div>` +
+      (done.length ? done.map(a => row(a, true)).join('') : '<div class="qdesc" style="padding:6px">Пока ни одного — начни осаду!</div>') +
+      (todo.length ? '<div class="qsection">ЕЩЁ НЕ ОТКРЫТЫ</div>' + todo.map(a => row(a, false)).join('') : '');
+  }
+}
+
+function claimQuest(key) {
+  const d = ensureDaily();
+  const q = pickDaily(d.date).find(x => x.key === key);
+  if (!q || d.taken[key]) return;
+  if (questProgress(q, state.stats, d.snapshot) < q.target) return;
+  d.taken[key] = 1;
+  state.gold += q.reward;
+  state.stats.totalGold += q.reward;
+  sfx('coin');
+  toast(`📜 Задание выполнено: +${fmt(q.reward)} золота`);
+  saveGame();
+  renderQuests();
+  updateQuestBadge();
+  updateHud();
+}
+
+bindTap(document.getElementById('questBtn'), openQuests);
+bindTap(document.getElementById('questClose'), closeQuests);
+document.querySelectorAll('.qtab').forEach(t => bindTap(t, () => setQuestTab(t.dataset.tab)));
+
 bindTap(document.getElementById('treeBtn'), openTree);
 bindTap(document.getElementById('invBtn'), openInv);
 // монетизация: донат и бонусы за рекламу
@@ -2093,7 +2256,9 @@ function updateSkillBadge() {
   el && (el.style.color = state.skillPts > 0 ? '#7fc97f' : '#e8d5a3');
 }
 const _updateHud = updateHud;
-updateHud = function () { _updateHud(); updateSkillBadge(); renderTreePtsOnly(); updateVipBadge(); syncBanner(); };
+let _achTick = 0;
+updateHud = function () { _updateHud(); updateSkillBadge(); renderTreePtsOnly(); updateVipBadge(); syncBanner();
+  if (++_achTick % 8 === 0) { checkAchievements(); updateQuestBadge(); } };
 // VIP-статус показываем рядом с золотом
 function updateVipBadge() {
   const g = document.getElementById('gold');
@@ -2116,11 +2281,14 @@ function renderTreePtsOnly() {
 }
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
-window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene };
+window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene,
+  checkAchievements, dailyQuests, claimQuest, questReadyCount, openQuests, renderQuests, ACHIEVEMENTS };
 // спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
 Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
   window.__dbg.atlas = atlasSprites;
   renderInventory();
   toast('🎨 Спрайты и иконки загружены');
 }).catch(() => {});
+ensureDaily();
+updateQuestBadge();
 requestAnimationFrame(tick);
