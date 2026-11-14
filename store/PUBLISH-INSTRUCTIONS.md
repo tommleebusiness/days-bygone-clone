@@ -9,8 +9,8 @@
 
 | Артефакт | Путь |
 |---|---|
-| AAB для Google Play | `dist/days-bygone-osada-v3.1.aab` |
-| APK для теста на телефоне | `dist/days-bygone-osada-v3.1.apk` |
+| AAB для Google Play | `dist/days-bygone-osada-v3.4.aab` |
+| APK для теста на телефоне | `dist/days-bygone-osada-v3.4.apk` |
 | Метаданные Google Play | `store/google/store-listing.md` |
 | Иконка 512×512 | `store/google/icon-512.png` |
 | Feature graphic 1024×500 | `store/google/feature-1024x500.png` |
@@ -28,7 +28,7 @@
 | **Инструкция сборки iOS** | **`store/apple/README-BUILD.md`** |
 | Политика конфиденциальности | `store/privacy-policy.md` |
 
-**Версия:** 3.1 (versionCode 15)
+**Версия:** 3.4 (versionCode 18) — сюжетные главы, 3D-графика, HP-полоски
 
 ---
 
