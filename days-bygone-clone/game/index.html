@@ -20,6 +20,10 @@
   #stage { position:relative; flex:1 1 auto; min-height:45vh; display:flex; align-items:center; justify-content:center; overflow:hidden; }
   #game { image-rendering: pixelated; image-rendering: crisp-edges; background:#0d0a08;
     border:none; display:block; position:absolute; }
+  /* 3D-фон меню: рисуется поверх игрового канваса, под оверлеями */
+  #menu3d { position:absolute; inset:0; width:100%; height:100%; display:block;
+    z-index:2; pointer-events:none; background:#0a0710;
+    transition:opacity .45s ease; opacity:1; }
   /* --- средневековый HUD --- */
   #hud { position:absolute; top:8px; left:50%; transform:translateX(-50%);
     display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;
@@ -54,7 +58,10 @@
   .overlay { position:fixed; inset:0; z-index:10; background:rgba(8,5,2,.88);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     text-align:center; gap:14px; }
-  .overlay h1 { color:#c94f3d; font-size:34px; letter-spacing:3px; text-shadow:2px 2px 0 #000, 0 0 20px #501b12; }
+  /* стартовый экран полупрозрачнее — за ним видно 3D-замок */
+  #startScreen { background:radial-gradient(ellipse at 50% 46%, rgba(8,5,2,.16) 0%, rgba(8,5,2,.52) 52%, rgba(8,5,2,.86) 100%); }
+  .overlay h1 { color:#e8695a; font-size:34px; letter-spacing:3px;
+    text-shadow:0 2px 0 #000, 0 0 10px #000, 0 0 26px rgba(0,0,0,.95), 0 0 44px #501b12; }
   .overlay h2 { color:#f4c542; font-size:22px; }
   .overlay p { max-width:520px; color:#c9b991; font-size:14px; line-height:1.7; padding:0 20px; }
   .btn { background:#3d2a12; border:2px solid #c9a44f; color:#f4e6bd; font-family:inherit;
@@ -521,6 +528,7 @@ body.short #questModal{padding:4px}
 <div id="wrap">
   <div id="stage">
   <canvas id="game" width="640" height="360"></canvas>
+  <canvas id="menu3d"></canvas>
   <div id="hud">
     <span class="res">🪙 <b id="gold">0</b></span>
     <span class="day">День <span id="day">1</span> <span id="weatherHud" style="margin-left:4px">☀️</span></span>
@@ -607,6 +615,6 @@ body.short #questModal{padding:4px}
   </div>
 </div>
 
-<script type="module" src="main.js?v=93"></script>
+<script type="module" src="main.js?v=100"></script>
 </body>
 </html>

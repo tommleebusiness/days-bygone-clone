@@ -461,7 +461,10 @@ function spawnEnemy() {
   let spr = null;
   // слизень-прыгун: с 2-го дня, свой ритм и squash & stretch
   const slime = day >= 2 && Math.random() < 0.22;
+  // летун-мышь: с 4-го дня, летит по синусоиде над землёй
+  const bat = !slime && day >= 4 && Math.random() < 0.13;
   if (slime) { kind = 'slime'; spr = null; }
+  else if (bat) { kind = 'bat'; spr = null; }
   else if (pool.length) {
     // чем «новее» тип, тем меньше шанс (старые враги остаются массовкой)
     const weights = pool.map((e, i) => Math.pow(2.2, i));
@@ -495,6 +498,10 @@ function spawnEnemy() {
     bobY: 0,
     sq: 0,
     tint: slime ? ['#79c155', '#5fb8d0', '#c98fd8'][(Math.random() * 3) | 0] : null,
+    // полёт летуна
+    flyAmp: 8 + Math.random() * 6,
+    flyPhase: Math.random() * Math.PI * 2,
+    shadowY: GROUND,
   });
 }
 
@@ -1847,6 +1854,11 @@ function update(dt) {
   for (const e of enemies) {
     e.walkT += dt;
     if (e.hitT > 0) e.hitT -= dt;
+    // ---- летун: синусоида по высоте (2D: кадровый взмах крыла) ----
+    if (e.kind === 'bat') {
+      e.y = GROUND - 62 + Math.sin((state.time || 0) * 2.1 + (e.flyPhase || 0)) * (e.flyAmp || 9);
+    }
+
     // ---- слизень: прыжковый цикл (парабола + squash & stretch) ----
     if (e.kind === 'slime') {
       e.hopPhase = (e.hopPhase || 0) + dt / (e.hopDur || 0.7);
@@ -2132,6 +2144,7 @@ function beginSiege() {
   initAudio();                       // можно только по жесту пользователя
   const ss = document.getElementById('startScreen');
   if (ss) ss.style.display = 'none';
+  hideMenu3D();                      // гасим 3D-фон меню и освобождаем GPU
   const restored = loadGame();
   state.running = true;
   state.castleHp = maxCastleHp(); // полный HP на старте сессии
@@ -2148,6 +2161,28 @@ function showStartRecords() {
     : 'Первая осада — установи свой первый рекорд!';
 }
 showStartRecords();
+
+// ---------- 3D-фон стартового меню ----------
+let menu3d = null;
+function hideMenu3D() {
+  const c = document.getElementById('menu3d');
+  if (!c || c.style.display === 'none') return;
+  c.style.opacity = '0';
+  setTimeout(() => {
+    try { menu3d?.dispose?.(); } catch (e) {}
+    c.style.display = 'none';
+  }, 520);
+}
+(function bootMenu3D() {
+  const c = document.getElementById('menu3d');
+  if (!c || !window.WebGLRenderingContext) return;
+  // ленивая загрузка: игра стартует сразу, 3D подключается следом
+  setTimeout(() => {
+    import('./menu3d.js?v=1').then(m => {
+      menu3d = m.initMenu3D(c, (ok) => { if (!ok) c.style.display = 'none'; });
+    }).catch(() => { c.style.display = 'none'; });
+  }, 80);
+})();
 
 const startBtnEl = document.getElementById('startBtn');
 // pointerdown срабатывает и на тач-экранах Android, и мышью

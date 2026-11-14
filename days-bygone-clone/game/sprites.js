@@ -652,6 +652,47 @@ export function drawSlime(p, e, x, yBase, time = 0) {
   e._h = h + Math.max(0, Math.round(-bob)) + 6;          // высота для полоски HP
 }
 
+// ---------- Летун-мышь (2D: кадровая анимация взмаха) ----------
+// Крылья машут по кадрам: 4 позы, смена 12 раз в секунду — классическая
+// sprite-анимация. Ноги/тело качаются паразитной фазой (вторичное движение).
+export function drawBat(p, e, x, yBase, time = 0) {
+  const flapT = (time * 12) % 4;                       // 4 кадра взмаха
+  const frame = Math.floor(flapT);
+  const wingY = [0, -4, -8, -4][frame];                // верх/низ крыла
+  const wingTip = [-9, -4, 2, -4][frame];
+  const body = hex('#3a2a44'), bodyL = hex('#5a4468'), wingC = hex('#2a1c34'), eye = hex('#ff5a3c');
+  const cx = x, cy = Math.round(yBase);
+  // тень на земле (летун висит в воздухе, тень — на земле)
+  const gy = e.shadowY || (cy + 60);
+  for (let dx = -6; dx <= 6; dx++) {
+    const k = 1 - Math.abs(dx) / 7;
+    if (k > 0) p.put(cx + dx, gy, 0x3a180c08, 0.28 * k);
+  }
+  // крылья: два треугольника, машут вверх-вниз
+  for (const dir of [-1, 1]) {
+    for (let i = 1; i <= 9; i++) {
+      const wy = Math.round(cy - 6 + i * 0.55 + wingY * (i / 9) * 0.5);
+      const wx = cx + dir * i;
+      p.put(wx, wy, wingC);
+      if (i < 7) p.put(wx, wy + 1, wingC);
+      if (i === 9) p.put(wx, wy + wingTip * 0.1, bodyL);
+    }
+  }
+  // тело
+  for (let j = -5; j <= 5; j++) {
+    const hw = Math.max(1, 3 - Math.abs(j) * 0.35);
+    for (let dx = -Math.round(hw); dx <= Math.round(hw); dx++) {
+      p.put(cx + dx, cy + j, dx < 0 ? bodyL : body);
+    }
+  }
+  // уши и глаза
+  p.put(cx - 2, cy - 6, body); p.put(cx + 2, cy - 6, body);
+  p.put(cx - 2, cy - 4, eye); p.put(cx + 2, cy - 4, eye);
+  // клыки
+  p.put(cx - 1, cy + 5, hex('#e8e2d0')); p.put(cx + 1, cy + 5, hex('#e8e2d0'));
+  e._h = 30;
+}
+
 export function drawEnemy(p, e, time = 0, atlas = null) {
   const x = Math.round(e.x), y = Math.round(e.y);
   const walking = e.x > 104;
@@ -672,6 +713,8 @@ export function drawEnemy(p, e, time = 0, atlas = null) {
 
   // ---------- Слизень-прыгун: squash & stretch ----------
   if (e.kind === 'slime') { drawSlime(p, e, x, y, time); return; }
+  // ---------- Летун ----------
+  if (e.kind === 'bat') { drawBat(p, e, x, y, time); return; }
 
   if (e.burn) {
     const fl = Math.sin(time * 12) > 0 ? 1 : 0;
