@@ -69,7 +69,11 @@
     opacity:0; transition:opacity .3s; pointer-events:none; text-shadow:1px 1px 0 #000; }
   #castleHpWrap { position:absolute; top:8px; left:8px; z-index:7; width:178px;
     background:rgba(20,14,8,.72); border:1px solid #6b5433; border-radius:4px; padding:3px 6px 4px; }
-  #castleHpWrap .label { font-size:11px; color:#c9b991; text-shadow:1px 1px 0 #000; margin-bottom:2px; }
+  #castleHpWrap .label { font-size:11px; color:#c9b991; text-shadow:1px 1px 0 #000; margin-bottom:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* на узком экране оставляем только цифры ХП — слова не влезают в 88px */
+  body.narrow #castleHpWrap .lblName, body.short #castleHpWrap .lblName { display:none; }
+  body.narrow #castleHpWrap .label, body.short #castleHpWrap .label { text-align:center; }
   #castleHp { height:12px; background:#2a1408; border:1px solid #8a6a35;
     box-shadow:inset 0 0 6px rgba(0,0,0,.8); }
   #castleHpNum { color:#f4c542; }
@@ -533,7 +537,7 @@ body.short #questModal{padding:4px}
     <button class="hbtn" id="fsBtn">⛶<span class="lbl"> Фулскрин</span></button>
   </div>
   <div id="castleHpWrap">
-    <div class="label">⚑ Стены замка · <b id="castleHpNum">0 / 0</b></div>
+    <div class="label"><span class="lblName">⚑ Стены замка · </span><b id="castleHpNum">0 / 0</b></div>
     <div id="castleHp"><div id="castleHpFill"></div></div>
   </div>
   <div id="waveBarWrap">
@@ -603,6 +607,6 @@ body.short #questModal{padding:4px}
   </div>
 </div>
 
-<script type="module" src="main.js?v=84"></script>
+<script type="module" src="main.js?v=85"></script>
 </body>
 </html>
