@@ -24,6 +24,8 @@ export const COL = {
   hpBarBg: hex('#2a1408'), hpGreen: hex('#7fc97f'), hpYellow: hex('#f4c542'),
 };
 
+import { squash } from "./2d/anim.js?v=1";
+
 function rect(p, x, y, w, h, col) {
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) p.put(x + i, y + j, col);
 }
@@ -595,6 +597,61 @@ export function drawArcher(p, x, y, aimAngle, firing, time = 0, bowPull = 0, rec
 }
 
 // ---------- Враги (2× детализация) ----------
+// ---------- Слизень-прыгун (2D: squash & stretch) ----------
+// Прыгает по параболе, в полёте вытягивается, при посадке сплющивается.
+// Приём взят из 2D-анимации AniCraft (пример «ball bounce + squash»).
+export function drawSlime(p, e, x, yBase, time = 0) {
+  const bob = e.bobY || 0;
+  const sq = e.sq || 0;                                  // >0 сжатие, <0 вытягивание
+  const k = squash(sq > 0 ? sq : 0, sq < 0 ? -sq : 0);
+  const W0 = 26, H0 = 17;
+  const w = Math.max(8, Math.round(W0 * k.sx));
+  const h = Math.max(7, Math.round(H0 * k.sy));
+  const baseY = Math.round(yBase + bob);
+  const top = baseY - h;
+  const body = hex(e.tint || '#79c155'), bodyD = hex('#39631f'), bodyL = hex('#a9e57b');
+
+  // тень на земле: чем выше прыжок, тем меньше и бледнее
+  const hi = Math.min(1, Math.abs(bob) / Math.max(1, e.hopH || 12));
+  const shW = Math.round((w / 2) * (1 - hi * 0.45));
+  for (let dx = -shW; dx <= shW; dx++) {
+    const kk = 1 - Math.abs(dx) / (shW + 1);
+    if (kk > 0) p.put(x + dx, yBase, 0x3a1c0a08, 0.45 * kk * (1 - hi * 0.5));
+  }
+
+  // тело: эллипс-купол (верх приплюснут — «капля»)
+  for (let j = 0; j < h; j++) {
+    const u = j / Math.max(1, h - 1);                    // 0 верх … 1 низ
+    const yy = u * 2 - 1;
+    const halfW = Math.round((w / 2) * Math.sqrt(Math.max(0, 1 - yy * yy * 0.92)));
+    for (let dx = -halfW; dx <= halfW; dx++) {
+      const edge = Math.abs(dx) >= halfW;
+      let c = body;
+      if (edge) c = bodyD;
+      else if (dx < -halfW * 0.35 && j < h * 0.6) c = bodyL;   // блик слева сверху
+      p.put(x + dx, top + j, c);
+    }
+  }
+  // контур снизу — «стоит на земле»
+  for (let dx = -Math.round(w / 2); dx <= Math.round(w / 2); dx++) {
+    p.put(x + dx, baseY - 1, bodyD);
+  }
+  // глаза: белок + зрачок (смотрят влево, на замок)
+  const ey = top + Math.max(3, Math.round(h * 0.34));
+  for (const ex of [-4, 3]) {
+    p.put(x + ex, ey, hex('#f2f7ea')); p.put(x + ex + 1, ey, hex('#f2f7ea'));
+    p.put(x + ex, ey + 1, hex('#1a2410')); p.put(x + ex + 1, ey + 1, hex('#1a2410'));
+  }
+  // «рот» — тёмная дуга
+  p.put(x - 1, ey + 3, bodyD); p.put(x, ey + 4, bodyD); p.put(x + 1, ey + 3, bodyD);
+  // пузырьки-капли при сжатии
+  if (sq > 0.18) {
+    p.put(x - Math.round(w / 2) - 2, baseY - 2, bodyL);
+    p.put(x + Math.round(w / 2) + 2, baseY - 2, bodyL);
+  }
+  e._h = h + Math.max(0, Math.round(-bob)) + 6;          // высота для полоски HP
+}
+
 export function drawEnemy(p, e, time = 0, atlas = null) {
   const x = Math.round(e.x), y = Math.round(e.y);
   const walking = e.x > 104;
@@ -612,6 +669,9 @@ export function drawEnemy(p, e, time = 0, atlas = null) {
   if (atlas && e.sprKey && atlas(e, x, y, time, step)) {
     return;                      // спрайт нарисован, процедурная графика не нужна
   }
+
+  // ---------- Слизень-прыгун: squash & stretch ----------
+  if (e.kind === 'slime') { drawSlime(p, e, x, y, time); return; }
 
   if (e.burn) {
     const fl = Math.sin(time * 12) > 0 ? 1 : 0;

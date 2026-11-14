@@ -30,11 +30,12 @@ import { initMonetization, onMonetization, IAP_ITEMS, REWARDED, priceOf, isOwned
 import { ACHIEVEMENTS, CAMPAIGN, campaignState, pickDaily, pickWeekly, todayKey, weekKey, questProgress } from './quests.js?v=4';
 import { drawParallax, drawDepthHaze, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
   from "./fx/effects.js?v=3";
+import { ease, spring, trail, pulse } from "./2d/anim.js?v=1";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
   from "./tree.js?v=2";
 import { loadAtlas, atlasReady, atlasSprites, drawAtlasSprite } from "./atlas.js?v=1";
 import { atlasEnemiesForDay, ATLAS_BOSSES } from "./atlas-enemies.js?v=1";
-import { createHero, updateHero, heroMelee, heroHurt, drawHero } from "./hero-act.js?v=3";
+import { createHero, updateHero, heroMelee, heroHurt, drawHero, bowPoint, bowAnchor } from "./hero-act.js?v=4";
 
 // 3D-витрина рыцаря (GLB CC0 с patch.gg) — ленивая загрузка three.js при открытии панели
 let knight3d = null;
@@ -458,7 +459,10 @@ function spawnEnemy() {
   const pool = atlasReady() ? atlasEnemiesForDay(day) : [];
   let kind = day >= 3 && roll < 0.45 ? 'orc' : 'knight';
   let spr = null;
-  if (pool.length) {
+  // слизень-прыгун: с 2-го дня, свой ритм и squash & stretch
+  const slime = day >= 2 && Math.random() < 0.22;
+  if (slime) { kind = 'slime'; spr = null; }
+  else if (pool.length) {
     // чем «новее» тип, тем меньше шанс (старые враги остаются массовкой)
     const weights = pool.map((e, i) => Math.pow(2.2, i));
     const total = weights.reduce((a, b) => a + b, 0);
@@ -484,6 +488,13 @@ function spawnEnemy() {
     sprKey: spr ? spr.key : null,
     sprK: spr ? spr.k : 2,
     sprVari: (Math.random() * 3) | 0,
+    // прыжковый цикл слизня (2D-анимация: парабола + squash)
+    hopPhase: Math.random(),
+    hopDur: 0.62 + Math.random() * 0.26,
+    hopH: 9 + Math.random() * 7,
+    bobY: 0,
+    sq: 0,
+    tint: slime ? ['#79c155', '#5fb8d0', '#c98fd8'][(Math.random() * 3) | 0] : null,
   });
 }
 
@@ -525,13 +536,14 @@ function fireVolley() {
   for (let wave = 0; wave < 3; wave++) {
     setTimeout(() => {
       if (!state.running) return;
+      const o = bowPoint(hero.x, hero.y, state.aim, 1);
       for (const e of targets) {
         if (e.dead) continue;
         const crit = Math.random() < totalCrit() * 1.4;
         const dmg = totalBowDmg() * 0.8 * (crit ? 2.5 : 1) * TB().bossDmgMult * (e.armor ? (1 - e.armor) : 1);
         state.firing = true;
         arrows.push({
-          x: BOW.x, y: BOW.y,
+          x: o.x, y: o.y,
           vx: Math.cos(state.aim) * BAL.arrowSpeed * 0.9,
           vy: Math.sin(state.aim) * BAL.arrowSpeed * 0.9,
           dmg: 0, crit,            // прямой урон ниже; стрелы летят для визуала
@@ -551,7 +563,8 @@ function shoot() {
   // цель — ближайший враг перед стеной
   let target = null;
   for (const e of enemies) if (!e.dead && e.x > WALL_X + 28 && (!target || e.x < target.x)) target = e;
-  const sx = BOW.x, sy = BOW.y;
+  const _o = bowPoint(hero.x, hero.y, state.aim, state.bowPull);
+  const sx = _o.x, sy = _o.y;
   let baseA = state.aim;
   if (target) {
     // баллистика: попадаем в центр врага с компенсацией гравитации
@@ -640,6 +653,15 @@ function damageEnemy(e, dmg, crit = false) {
     const g = Math.round(e.gold * goldMult);
     state.gold += g;
     state.stats.kills++;
+    if (e.kind === 'slime') {
+      // брызги слизи вместо костей
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        state.particles.push({ x: e.x, y: e.y - 6,
+          vx: Math.cos(a) * (20 + Math.random() * 30), vy: Math.sin(a) * (18 + Math.random() * 26) - 18,
+          life: 0.5 + Math.random() * 0.4, max: 0.9, col: e.tint || '#79c155', g: 150, r: 2 });
+      }
+    }
     if (e.isBoss) state.stats.bossKills = (state.stats.bossKills || 0) + 1;
     state.stats.totalGold += g;
     coinFx(e.x, e.y - 8);
@@ -1744,8 +1766,9 @@ function update(dt) {
   let nearest = null;
   for (const e of enemies) if (!nearest || e.x < nearest.x) nearest = e;
   if (nearest && nearest.x > WALL_X + 28) {
-    const t = (nearest.x - BOW.x) / BAL.arrowSpeed;
-    const vy = ((nearest.y - 8) - BOW.y - 0.5 * ARROW_G * t * t) / t;
+    const _ao = bowPoint(hero.x, hero.y, state.aim, state.bowPull);
+    const t = (nearest.x - _ao.x) / BAL.arrowSpeed;
+    const vy = ((nearest.y - 8) - _ao.y - 0.5 * ARROW_G * t * t) / t;
     state.aim = Math.atan2(vy, BAL.arrowSpeed);
   } else {
     state.aim = -0.35;
@@ -1824,6 +1847,26 @@ function update(dt) {
   for (const e of enemies) {
     e.walkT += dt;
     if (e.hitT > 0) e.hitT -= dt;
+    // ---- слизень: прыжковый цикл (парабола + squash & stretch) ----
+    if (e.kind === 'slime') {
+      e.hopPhase = (e.hopPhase || 0) + dt / (e.hopDur || 0.7);
+      if (e.hopPhase >= 1) e.hopPhase -= 1;
+      const ph = e.hopPhase;
+      if (ph < 0.8) {
+        const u = ph / 0.8;
+        e.bobY = -Math.sin(Math.PI * u) * (e.hopH || 12);     // парабола прыжка
+        e.sq = -0.34 * Math.cos(Math.PI * u);                  // вытянут в полёте
+      } else {
+        const u = (ph - 0.8) / 0.2;
+        e.bobY = 0;
+        e.sq = 0.46 * (1 - u * u);                             // приземление: сплющился
+      }
+      if (ph < 0.82) {                                          // движется только в прыжке
+        e.x -= (e.speed * 1.9) * dt;
+      }
+      if (e.x > WALL_X + 4) { /* дистанция сокращается внутри блока ниже — пропускаем */ }
+    }
+
     // заморозка (узел «Ледяные ядра»): враг ползёт на 40% медленнее
     let speedMult = 1;
     if (e.frozen > 0) { e.frozen -= dt; speedMult *= 0.4; }
@@ -1859,7 +1902,8 @@ function update(dt) {
       }
     }
     if (e.x > WALL_X + 4) {
-      e.x -= e.speed * (wmod.enemySpeed ?? 1) * speedMult * dt;
+      // слизень уже двигается своим прыжковым циклом
+      if (e.kind !== 'slime') e.x -= e.speed * (wmod.enemySpeed ?? 1) * speedMult * dt;
     } else {
       // атакует стену
       e.atkT -= dt;
@@ -2038,11 +2082,14 @@ function render(dt) {
   // эффекты за персонажами
   for (const fx of fxs) fx.draw(frame, 'back');
 
-  // тряска экрана — сдвигаем всё ПОСЛЕ отрисовки
+  // тряска экрана — сдвигаем всё ПОСЛЕ отрисовки.
+  // Амплитуда затухает по кривой easeOut (2D-анимация), а не линейно:
+  // удар «щёлкает» и мягко отпускает, как твин в AniCraft.
   let ox = 0, oy = 0;
   if (state.shakeT > 0) {
-    ox = Math.round((Math.random() - 0.5) * 8);
-    oy = Math.round((Math.random() - 0.5) * 6);
+    const amp = ease('cubicOut', Math.min(1, state.shakeT / 0.5));
+    ox = Math.round((Math.random() - 0.5) * 10 * amp);
+    oy = Math.round((Math.random() - 0.5) * 7 * amp);
   }
   frame.ox = -ox; frame.oy = -oy;
 
@@ -2060,7 +2107,8 @@ function render(dt) {
   // вспышка спуска у кончика лука
   if (state.sparkT > 0) {
     const k = state.sparkT / 0.09;
-    const fx0 = ARCHER.x + 20, fy0 = ARCHER.y - 24 + Math.round(state.aim * 16);
+    const _bo = bowPoint(hero.x, hero.y, state.aim, 0);
+    const fx0 = _bo.x, fy0 = _bo.y;
     for (let i = 0; i < 4; i++) {
       const ang = -0.4 + i * 0.35 + (Math.random() - 0.5) * 0.2;
       painter.line(fx0, fy0, Math.round(fx0 + Math.cos(ang) * 4 * k), Math.round(fy0 + Math.sin(ang) * 4 * k),

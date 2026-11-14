@@ -7,6 +7,7 @@
 
 import { createAct, poseAt, posed, STAND, READY, painterFor, stockActor } from "./vendor/pixelfx/core/index.js?v=2";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
+import { spring, ease } from "./2d/anim.js?v=1";
 import * as swordSlash from "./vendor/pixelfx/fx/melee/sword-slash.js?v=1";
 
 // ---------- Позы героя-лучника ----------
@@ -79,12 +80,19 @@ export function createHero(x, y) {
     meleeT: -1,               // таймер акта меча
     hurtT: -1,                // таймер получения урона
     time: 0,
+    // 2D-анимация: пружины вторичного движения (тетива, плащ)
+    string: spring(0, 320, 16),
+    cape: spring(0, 90, 9),
   };
 }
 
 // обновление: вызывать каждый кадр
 export function updateHero(hero, dt) {
   hero.time += dt;
+  // тетива звенит после спуска, плащ колышется от выстрела/удара
+  hero.string.target = 0;
+  hero.string.update(dt);
+  hero.cape.update(dt);
   if (hero.fireT >= 0) {
     hero.fireT += dt;
     if (hero.fireT > 0.4) hero.fireT = -1;
@@ -100,11 +108,38 @@ export function updateHero(hero, dt) {
 }
 
 // триггеры из игры
-export function heroShoot(hero) { if (hero.fireT < 0) hero.fireT = 0; hero.firing = true; }
-export function heroMelee(hero) { if (hero.meleeT < 0) hero.meleeT = 0; }
-export function heroHurt(hero)  { if (hero.hurtT < 0) hero.hurtT = 0; }
+export function heroShoot(hero) {
+  if (hero.fireT < 0) hero.fireT = 0;
+  hero.firing = true;
+  hero.string?.kick(-140);         // тетива дёргается назад
+  hero.cape?.kick(-40);            // плащ отлетает
+}
+export function heroMelee(hero) {
+  if (hero.meleeT < 0) hero.meleeT = 0;
+  hero.cape?.kick(-70);
+}
+export function heroHurt(hero)  { if (hero.hurtT < 0) hero.hurtT = 0; hero.cape?.kick(-90); }
 
 // ---------- Лук ----------
+// Геометрия лука в одном месте: и рисование, и точка вылета стрелы
+// считаются по этим формулам — иначе стрелы летят не из тетивы.
+const BOW_OX = 7;          // смещение центра лука от центра героя
+const BOW_OY = -22;        // высота лука над ступнями
+export function bowCenter(x, y, aim) {
+  const tilt = Math.max(-0.5, Math.min(0.9, aim));
+  return { x: x + BOW_OX, y: y + BOW_OY + Math.round(tilt * 6) + 1, a: tilt * 0.55 };
+}
+// Точка схода стрелы: чуть впереди тетивы, на линии лука.
+export function bowPoint(x, y, aim, pull = 0) {
+  const c = bowCenter(x, y, aim);
+  const nx = -1.5 - Math.max(0, Math.min(1, pull)) * 6.5 + 5;
+  return {
+    x: Math.round(c.x + nx * Math.cos(c.a)),
+    y: Math.round(c.y + nx * Math.sin(c.a)),
+  };
+}
+export function bowAnchor(hero) { return bowPoint(hero.x, hero.y, hero.aim, hero.pull); }
+
 // Читаемый пиксельный лук в руке: дуга 26 px с тетивой, рукоятью и стрелой.
 // Риговый лук чертится почти «в торец» и на экране не читается, поэтому
 // здесь он рисуется отдельным спрайтом, повёрнутым на угол прицела.
@@ -112,7 +147,7 @@ const BOW_COL = {
   limb: hex('#7a5a32'), limbD: hex('#4a3420'), grip: hex('#c9a44f'),
   string: hex('#d8d0c0'), shaft: hex('#c8b48a'), head: hex('#e8e8f0'),
 };
-function drawBow(p, x, y, pull, aim) {
+function drawBow(p, x, y, pull, aim, vib = 0) {
   const a = Math.max(-0.5, Math.min(0.9, aim)) * 0.55;   // наклон по углу прицела
   const ca = Math.cos(a), sa = Math.sin(a);
   const rot = (dx, dy) => [Math.round(dx * ca - dy * sa), Math.round(dx * sa + dy * ca)];
@@ -126,7 +161,7 @@ function drawBow(p, x, y, pull, aim) {
     p.put(x + r2[0], y + r2[1], BOW_COL.limbD);
   }
   // ---- тетива: от кончиков к точке натяжения
-  const nx = -1.5 - pull * 6.5;
+  const nx = -1.5 - pull * 6.5 + vib;
   const tT = rot(0, -H), tB = rot(0, H), nk = rot(nx, 0);
   p.line(x + tT[0], y + tT[1], x + nk[0], y + nk[1], BOW_COL.string, 1);
   p.line(x + tB[0], y + tB[1], x + nk[0], y + nk[1], BOW_COL.string, 1);
@@ -172,6 +207,20 @@ export function drawHero(frame, hero, gear = null) {
     pose = { ...pose, lean: (pose.lean ?? 0) - Math.round(k * 6), crouch: (pose.crouch ?? 0) + Math.round(k * 3), x: -(1 - k) * 3 };
   }
 
+  // ---- ПЛАЩ (вторичное движение на пружине, за телом) ----
+  {
+    const cw = Math.round((hero.cape?.value || 0) * 0.12);      // −20..+20 → −2..+2 px
+    const baseX = hero.x - 7, baseY = hero.y + 1;
+    const col = hex('#7a2f2f'), colD = hex('#4a1c1c');
+    for (let j = 0; j < 15; j++) {
+      const sway = Math.round(Math.sin(hero.time * 3 + j * 0.5) * 1.1 + cw * (j / 15) * 1.6);
+      const wdt = Math.max(1, 6 - Math.round(j / 4));
+      for (let dx = 0; dx < wdt; dx++) {
+        p.put(baseX - dx + sway, baseY - 13 + j, dx >= wdt - 1 ? colD : col);
+      }
+    }
+  }
+
   const r = posed(pose);
   // Координаты рига: ступни в (0,0), тело уходит вверх (y<0), низ фигуры ys=-1.
   // Значит пиксель кладём на hero.y + ys + 1: подошва встаёт ровно на hero.y
@@ -182,8 +231,10 @@ export function drawHero(frame, hero, gear = null) {
 
   // ЛУК в дальней руке: позиция берётся из позы (bx, by — рука на луке)
   {
-    const tilt = Math.max(-0.5, Math.min(0.9, hero.aim));
-    drawBow(p, hero.x + 7, hero.y - 22 + Math.round(tilt * 6) + 1, pose.pull || 0, hero.aim);
+    // дрожание тетивы: пружина даёт ±несколько px сразу после выстрела
+    const vib = Math.max(-1.5, Math.min(1.5, (hero.string?.value || 0) * 0.02));
+    const bc = bowCenter(hero.x, hero.y, hero.aim);
+    drawBow(p, bc.x, bc.y, pose.pull || 0, hero.aim, vib);
   }
 
   // тень у ног
