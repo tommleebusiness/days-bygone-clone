@@ -554,8 +554,12 @@ export function drawStructures(p, structs, time) {
       // флаг уровня с 2 уровня
       if (st.banner) {
         p.line(x + W2 - 2, G2 - H - 8, x + W2 - 2, G2 - H - 24, hex('#3a2a14'));
-        rect(p, x + W2 - 1, G2 - H - 24, 8 + Math.min(6, s.lvl), 5, hex('#c94f3d'));
-        p.put(x + W2 + 2, G2 - H - 22, hex('#f4c542'));
+        // колышущееся полотнище: каждый пиксель смещается волной
+        const fw = 8 + Math.min(6, s.lvl);
+        for (let i = 0; i < fw; i++) {
+          const fy = G2 - H - 24 + Math.round(Math.sin(time * 4 + i * 0.9) * (1 + i * 0.18));
+          for (let j = 0; j < 5; j++) p.put(x + W2 - 1 + i, fy + j, i === 3 && j === 2 ? hex('#f4c542') : hex('#c94f3d'));
+        }
       }
       if (st.glow) {
         const gl = 0.35 + 0.25 * Math.sin(time * 3);
@@ -566,7 +570,8 @@ export function drawStructures(p, structs, time) {
       rect(p, x - 3, G2 - H + 22, 6, 12, hex('#3d392f'));
       if (st.double) rect(p, x - 3, G2 - H + 42, 6, 10, hex('#3d392f'));
       // лучник на площадке: натягивает лук при выстреле
-      const lean = kicking ? -2 : 0;
+      const breathe = Math.sin(time * 2.2) > 0 ? 0 : -1;
+      const lean = kicking ? -2 : breathe;
       rect(p, x - 5 + lean, G2 - H - 22, 10, 14, hex('#8a6a3d'));      // туловище
       p.put(x + 3 + lean, G2 - H - 16, hex('#d8a077'));
       rect(p, x - 3 + lean, G2 - H - 26, 7, 6, hex('#3a2a14'));         // капюшон
@@ -579,8 +584,14 @@ export function drawStructures(p, structs, time) {
       p.line(x + 7 + lean - pull, G2 - H - 18, x + 7 + lean, G2 - H - 12, hex('#d8d0c0'));
       if (!kicking) p.line(x + 7 + lean - pull, G2 - H - 18, x + 15 + lean, G2 - H - 18, hex('#e8e8f0'));
       // вымпел уровня
-      rect(p, x + 13, G2 - H - 30, 1, 16, hex('#3a2a14'));
-      rect(p, x + 14, G2 - H - 30, 8 + s.lvl * 2, 5, hex('#c94f3d'));
+      p.line(x + 13, G2 - H - 30, x + 13, G2 - H - 14, hex('#3a2a14'));
+      {
+        const fw = 8 + s.lvl * 2;
+        for (let i = 0; i < fw; i++) {
+          const fy = G2 - H - 30 + Math.round(Math.sin(time * 3.2 + i * 0.8) * (0.6 + i * 0.2));
+          for (let j = 0; j < 5; j++) p.put(x + 14 + i, fy + j, hex('#c94f3d'));
+        }
+      }
       for (let i = 0; i < Math.min(5, s.lvl); i++) p.dot(x - 10 + i * 4, G2 - 2, hex('#ffc23d'));
 
     } else if (s.key === 'mage') {
@@ -654,9 +665,12 @@ export function drawStructures(p, structs, time) {
         p.line(x - 12 - snap, py - 18, x, py - 10, hex('#a0a8b4'));
         p.line(x + 12 + snap, py - 18, x, py - 10, hex('#a0a8b4'));
       }
-      if (st.banner) {   // вымпел
+      if (st.banner) {   // вымпел — колышется
         p.line(x + 18, G2 - 26, x + 18, py - 22, hex('#3a2a14'));
-        rect(p, x + 19, py - 22, 7, 4, hex('#c94f3d'));
+        for (let i = 0; i < 7; i++) {
+          const fy = py - 22 + Math.round(Math.sin(time * 3.5 + i * 0.9) * (0.5 + i * 0.15));
+          for (let j = 0; j < 4; j++) p.put(x + 19 + i, fy + j, hex('#c94f3d'));
+        }
       }
       // тетива: натянута назад или хлёстко вперёд
       const stringX = kicking ? x + 2 : x - 8;
@@ -712,7 +726,8 @@ export function drawStructures(p, structs, time) {
       // Катапульта: станина и рычаг растут с уровнем
       const st = lvlStyle(s.lvl);
       const prog = kicking ? 1 - anim / 0.4 : 0;            // 0..1 прогресс взмаха
-      const armA = -Math.sin(prog * Math.PI) * 1.15;         // мах вверх-вперёд
+      const idle = Math.sin(time * 1.6) * 0.05;              // лёгкое покачивание в простое
+      const armA = kicking ? -Math.sin(prog * Math.PI) * 1.15 : idle;
       const px0 = x - 8, py0 = G2 - 8;                       // ось
       // станина — шире и толще с уровнем
       const bw = 22 + st.widen * 2;
@@ -783,6 +798,17 @@ export function drawStructures(p, structs, time) {
       const bub = Math.sin(time * 4) > 0;
       if (bub) { p.dot(x + 2, G2 - 5 - chgt, hex('#ff9a2d')); p.dot(x + cwid - 10, G2 - 5 - chgt, hex('#ff9a2d')); }
       p.dot(x + 7, G2 - 6 - chgt, hex('#ffc23d'), 0.5 + 0.5 * Math.sin(time * 7));
+      // поднимающиеся пузырьки (цикл 1.5с) и дымок
+      for (let b = 0; b < 3; b++) {
+        const ph = ((time * 0.8 + b * 0.5) % 1);
+        const bx = x + 2 + ((b * 7 + Math.floor(time * 0.5)) % Math.max(4, cwid - 10));
+        const by = G2 - 6 - chgt - Math.round(ph * 8);
+        p.dot(bx, by, hex('#ff9a2d'), Math.max(0, 0.9 - ph));
+      }
+      {
+        const ph = (time * 0.5) % 1;
+        p.dot(x + 7 + Math.round(Math.sin(time * 2) * 2), G2 - 8 - chgt - Math.round(ph * 10), hex('#9a9a90'), Math.max(0, 0.4 - ph * 0.4));
+      }
       // струя масла при срабатывании
       if (kicking) {
         const len = Math.round((1 - anim / 0.5) * 26) + 4;

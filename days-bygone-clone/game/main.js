@@ -17,7 +17,7 @@ import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=14";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles,
          structCost, structCd, MAX_STRUCT_LVL }
-  from "./structures.js?v=12";
+  from "./structures.js?v=13";
 import { rollItem, rollDrop, itemSellPrice, describeItem, createInventory, equipBonuses, drawLootDrop,
   SLOT_ORDER, SLOT_NAMES, UNIQUES }
   from "./loot.js?v=4";
@@ -27,14 +27,43 @@ import { initAudio, sfx, musicStart, musicStop, musicScene, toggleMusic, toggleS
 import { initMonetization, onMonetization, IAP_ITEMS, REWARDED, priceOf, isOwned, markOwned,
          buy as iapBuy, restore as iapRestore, showRewarded, showInterstitial, adsRemoved,
          setBanner, isAndroid, MON } from "./monetization.js?v=1";
-import { ACHIEVEMENTS, pickDaily, todayKey, questProgress } from './quests.js?v=2';
-import { drawParallax, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
-  from "./fx/effects.js?v=2";
+import { ACHIEVEMENTS, CAMPAIGN, campaignState, pickDaily, pickWeekly, todayKey, weekKey, questProgress } from './quests.js?v=4';
+import { drawParallax, drawDepthHaze, deathParticles, critSparks, iceBurst, updateParticles, drawParticles }
+  from "./fx/effects.js?v=3";
 import { TREE, createTreeState, treeBonuses, nodeAvailable }
   from "./tree.js?v=2";
 import { loadAtlas, atlasReady, atlasSprites, drawAtlasSprite } from "./atlas.js?v=1";
 import { atlasEnemiesForDay, ATLAS_BOSSES } from "./atlas-enemies.js?v=1";
+import { createHero, updateHero, heroMelee, heroHurt, drawHero } from "./hero-act.js?v=3";
 
+// 3D-витрина рыцаря (GLB CC0 с patch.gg) — ленивая загрузка three.js при открытии панели
+let knight3d = null;
+let knight3dLoading = false;
+async function toggleKnight3D() {
+  const doll = document.getElementById('heroDoll');
+  const three = document.getElementById('knight3d');
+  if (!doll || !three) return;
+  sfx('ui');
+  if (three.style.display === 'none') {
+    three.style.display = 'block';
+    doll.style.display = 'none';
+    if (!knight3d && !knight3dLoading) {
+      knight3dLoading = true;
+      try {
+        const { initKnight3D } = await import("./knight3d.js?v=3");
+        knight3d = initKnight3D(three, (ok) => {
+          if (!ok) { // WebGL недоступен — вернуть 2D-куклу
+            three.style.display = 'none'; doll.style.display = 'block';
+          }
+        });
+      } catch (e) { console.warn('3D knight unavailable', e); three.style.display = 'none'; doll.style.display = 'block'; }
+      knight3dLoading = false;
+    }
+  } else {
+    three.style.display = 'none';
+    doll.style.display = 'block';
+  }
+}
 // босс → спрайт из атласа (id босса совпадает с ключом темы не везде)
 const BOSS_SPR = {
   ogre:       'ogre_chief',
@@ -52,6 +81,8 @@ const ARCHER = { x: 52, y: GROUND - 128 };      // стоит на верху с
 const BOW = { x: ARCHER.x + 16, y: ARCHER.y - 16 }; // точка вылета стрел
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+// герой на 3D-риге: стоит на стене, ноги на (ARCHER.x, ARCHER.y)
+const hero = createHero(ARCHER.x + 6, ARCHER.y);
 const frame = createFrame(W, H);
 const img = ctx.createImageData(W, H);
 
@@ -119,7 +150,8 @@ const state = {
   loot: [],
   particles: [],
   projectiles: [],
-  stats: { kills: 0, daysSurvived: 1, totalGold: 0, bossKills: 0, crits: 0, lootFound: 0 },
+  stats: { kills: 0, daysSurvived: 1, totalGold: 0, bossKills: 0, crits: 0, lootFound: 0,
+           wavesCleared: 0, volleys: 0, structUps: 0, upgradesBought: 0, flawlessWaves: 0, erasDone: 0 },
   time: 0,
   fireCooldown: 0,
   bowPull: 0, recoilT: 0, sparkT: 0,
@@ -138,8 +170,11 @@ const state = {
   adGoldPending: 0,  // невыбранное золото за рекламу
   lastInterstitial: 0,
   ach: {},           // полученные достижения: {id: 1}
-  daily: null,       // текущие задания: {date, snapshot, taken:{key:1}}
+  daily: null,       // ежедневные: {date, snapshot, taken:{key:1}}
+  weekly: null,      // еженедельные: {week, snapshot, taken:{id:1}}
   seenAch: 0,        // сколько достижений было на момент последнего просмотра
+  campaign: {},      // забранные награды сюжетных глав: {ch1: 1}
+  flawlessNow: 0,    // волн подряд без потери стен (для задания d_castle)
 };
 
 // ---------- СОХРАНЕНИЕ ПРОГРЕССА (localStorage) ----------
@@ -152,7 +187,8 @@ function saveGame() {
       up: state.up, structs: state.structs, inv: state.inv,
       tree: state.tree, skillPts: state.skillPts,
       stats: state.stats, aim: state.aim,
-      iap: state.iap, ach: state.ach, daily: state.daily,
+      iap: state.iap, ach: state.ach, daily: state.daily, weekly: state.weekly,
+      campaign: state.campaign,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   } catch (e) { /* приватный режим — играем без сейва */ }
@@ -175,6 +211,8 @@ function loadGame() {
     state.stats = Object.assign(state.stats, d.stats || {});
     if (d.ach) state.ach = d.ach;
     if (d.daily) state.daily = d.daily;
+    if (d.weekly) state.weekly = d.weekly;
+    if (d.campaign) state.campaign = d.campaign;
     if (typeof d.aim === 'number') state.aim = d.aim;
     return true;
   } catch (e) { return false; }
@@ -203,6 +241,26 @@ window.addEventListener('pagehide', () => { if (state.running) saveGame(); });
 const enemies = [], arrows = [], fxs = [];
 
 const dmgLvl = () => state.up.dmg;
+// ----- СЛОЖНОСТЬ ОТ СИЛЫ (чем больше улучшений — тем проще было бы; компенсируем) -----
+// Индекс силы: сумма уровней апгрейдов + узлов дерева + сооружений.
+// Каждый пункт добавляет врагам немного HP/урона, до разумного потолка.
+function powerIndex() {
+  const upSum = state.up.dmg + state.up.rate + state.up.multi + state.up.crit + state.up.pierce;
+  const treeN = Object.keys(state.tree).length;
+  let structN = 0, structLvl = 0;
+  for (const st of state.structs) { if (st.lvl > 0) { structN++; structLvl += st.lvl; } }
+  return upSum + treeN * 2 + structN * 3 + structLvl;
+}
+// Множители: мягкий рост, без экспоненты. 40 силы → +32% HP, +24% урона, +13% скорости.
+function difficultyMults() {
+  const P = powerIndex();
+  return {
+    hp: 1 + Math.min(0.9, P * 0.008),
+    dmg: 1 + Math.min(0.7, P * 0.006),
+    spd: 1 + Math.min(0.35, P * 0.003),
+    gold: 1 + Math.min(0.5, P * 0.004),  // золото тоже подрастает — награда за сложность
+  };
+}
 const fireRateBaseNow = () => Math.min(BAL.fireRateCap, BAL.fireRateBase + state.up.rate * BAL.fireRatePerLvl);
 const fireRate = () => fireRateBaseNow() * EB().rate;   // перчатки ускоряют стрельбу
 const arrowsPerShot = () => 1 + state.up.multi + TB().extraArrows + EB().extraArrow;
@@ -384,6 +442,7 @@ function ctxSpawn(kind, x, y) {
 // ---------- Враги ----------
 function startWave() {
   state.waveInDay++;
+  state.flawlessNow = 0;          // новая волна: стены ещё целы
   const day = state.day;
   const isBossWave = state.waveInDay === BAL.wavesPerDay && day % 1 === 0;
   state.spawnQueue = Math.round(BAL.enemiesBase + (day - 1) * BAL.enemiesPerDay);
@@ -411,14 +470,15 @@ function spawnEnemy() {
     spr = pool[pickI];
     kind = 'atlas';
   }
-  const hp = Math.round(BAL.enemyHp(day, state.waveInDay) * (spr ? spr.hpMult : 1));
+  const DM = difficultyMults();
+  const hp = Math.round(BAL.enemyHp(day, state.waveInDay) * DM.hp * (spr ? spr.hpMult : 1));
   enemies.push({
     kind, x: W + 10, y: GROUND,
     hp, maxHp: hp,
-    speed: BAL.enemySpeed(day) * (kind === 'orc' ? 1.25 : 1) * (spr ? spr.spdMult : 1),
+    speed: BAL.enemySpeed(day) * DM.spd * (kind === 'orc' ? 1.25 : 1) * (spr ? spr.spdMult : 1),
     walkT: Math.random() * 10,
-    dmg: Math.round(BAL.enemyDmg(day) * (spr ? spr.dmgMult : 1)),
-    gold: BAL.enemyGold(day, false),
+    dmg: Math.round(BAL.enemyDmg(day) * DM.dmg * (spr ? spr.dmgMult : 1)),
+    gold: Math.round(BAL.enemyGold(day, false) * DM.gold),
     attacking: false,
     atkT: 0,
     sprKey: spr ? spr.key : null,
@@ -429,15 +489,16 @@ function spawnEnemy() {
 
 function spawnBoss(forceId) {
   const b = forceId ? BOSS_TYPES[forceId] : bossForDay(state.day);
-  const hp = Math.round(BAL.enemyHp(state.day, BAL.wavesPerDay) * b.hpMult);
+  const DM = difficultyMults();
+  const hp = Math.round(BAL.enemyHp(state.day, BAL.wavesPerDay) * DM.hp * b.hpMult);
   enemies.push({
     kind: 'boss', bossId: b.id, isBoss: true, bossName: b.name,
     x: W + 14, y: GROUND,
     hp, maxHp: hp,
-    speed: BAL.enemySpeed(state.day) * b.speedMult,
+    speed: BAL.enemySpeed(state.day) * DM.spd * b.speedMult,
     walkT: 0,
-    dmg: BAL.enemyDmg(state.day) * b.dmgMult,
-    gold: Math.round(BAL.enemyGold(state.day, true) * (b.goldMult / 12)),
+    dmg: BAL.enemyDmg(state.day) * DM.dmg * b.dmgMult,
+    gold: Math.round(BAL.enemyGold(state.day, true) * DM.gold * (b.goldMult / 12)),
     attacking: false, atkT: 0,
     armor: b.armor || 0, evade: b.evade || 0,
     mechanic: b.mechanic, mechT: 3.0, summonT: 4.0,
@@ -458,6 +519,7 @@ const ARROW_G = 120;
 function fireVolley() {
   if (!state.running || state.volleyCd > 0) return;
   state.volleyCd = state.VOLLEY_CD;
+  state.stats.volleys = (state.stats.volleys || 0) + 1;
   const targets = enemies.filter(e => !e.dead && e.x > WALL_X - 10);
   if (!targets.length) { toast('Некуда стрелять!'); return; }
   for (let wave = 0; wave < 3; wave++) {
@@ -639,6 +701,7 @@ function endEra() {
 
 function newEra() {
   state.era++;
+  state.stats.erasDone = (state.stats.erasDone || 0) + 1;
   const rec = loadRecords(); rec.eras = state.era;
   try { localStorage.setItem(REC_KEY, JSON.stringify(rec)); } catch (e) {}
   wipeSave();
@@ -696,6 +759,7 @@ function buy(def) {
   if (maxed || state.gold < cost) return;
   state.gold -= cost;
   state.up[def.key]++;
+  state.stats.upgradesBought = (state.stats.upgradesBought || 0) + 1;
   sfx('buy');
   renderShop(); updateHud();
 }
@@ -735,6 +799,7 @@ function buyStruct(def) {
   if (state.gold < cost) return;
   state.gold -= cost;
   s.lvl++;
+  state.stats.structUps = (state.stats.structUps || 0) + 1;
   sfx('build');
   if (s.lvl >= MAX_STRUCT_LVL) {
     // легендарный уровень — корона и парящие камни
@@ -974,7 +1039,7 @@ function drawItemIcon(cv, item) {
 function buildInventoryUI() {
   const modal = document.getElementById('invModal');
   modal.innerHTML = `<div class="invPanel">
-    <h2>🎒 ЭКИПИРОВКА ГЕРОЯ</h2>
+    <h2>🎒 ЭКИПИРОВКА ГЕРОЯ <button id="btn3d" class="btn3d" title="3D-рыцарь (patch.gg)">🛡 3D</button></h2>
     <div class="d2wrap">
       <div class="d2col d2left">
         <div class="d2caption">НА ГЕРОЕ</div>
@@ -986,7 +1051,7 @@ function buildInventoryUI() {
             <div class="d2slot" data-slot="boots"><span class="slabel">САПОГИ</span></div>
             <div class="d2slot" data-slot="belt"><span class="slabel">ПОЯС</span></div>
           </div>
-          <div class="d2doll"><canvas id="heroDoll" width="150" height="240"></canvas></div>
+          <div class="d2doll"><canvas id="heroDoll" width="150" height="240"></canvas><canvas id="knight3d" width="150" height="240" style="display:none"></canvas></div>
           <div class="d2slots d2slots-r">
             <div class="d2slot" data-slot="shoulders"><span class="slabel">НАПЛЕЧНИКИ</span></div>
             <div class="d2slot" data-slot="ring"><span class="slabel">КОЛЬЦО</span></div>
@@ -1230,6 +1295,10 @@ function renderInventory() {
   // кукла героя
   drawHeroDoll(document.getElementById('heroDoll'));
 
+  // кнопка 3D-витрины (GLB-рыцарь с patch.gg)
+  const b3 = document.getElementById('btn3d');
+  if (b3 && !b3._bound) { b3._bound = true; b3.addEventListener('click', (e) => { e.preventDefault(); toggleKnight3D(); }); }
+
   // слоты на кукле
   document.querySelectorAll('.d2slot').forEach(el => {
     const slot = el.dataset.slot;
@@ -1420,7 +1489,17 @@ function updateHud() {
   if (wEl) wEl.textContent = weather.WEATHER_DEFS[state.weather.kind].icon;
   const dps = fireRate() * arrowsPerShot() * totalBowDmg() * (1 + totalCrit() * 1.5);
   document.getElementById('dps').textContent = fmt(dps);
-  document.getElementById('castleHpFill').style.width = (state.castleHp / maxCastleHp() * 100) + '%';
+  const hpFrac = state.castleHp / maxCastleHp();
+  const fill = document.getElementById('castleHpFill');
+  fill.style.width = (hpFrac * 100) + '%';
+  // цвет: зелёный → жёлтый → красный, чтобы ХП стен читалось с первого взгляда
+  fill.style.background = hpFrac > 0.5
+    ? 'linear-gradient(#7fc97f,#3d7a3d)'
+    : hpFrac > 0.25
+      ? 'linear-gradient(#e8c050,#a07a20)'
+      : 'linear-gradient(#e05a4a,#8a1f17)';
+  const hpNum = document.getElementById('castleHpNum');
+  if (hpNum) hpNum.textContent = `${Math.ceil(state.castleHp)} / ${maxCastleHp()}`;
   document.getElementById('waveBarFill').style.width = (state.waveInDay / BAL.wavesPerDay * 100) + '%';
   renderShop(); renderStructShop();
 }
@@ -1683,6 +1762,22 @@ function update(dt) {
   } else state.firing = false;
   if (state.fireCooldown < 1 / fr - 0.08) state.firing = false;
 
+  // герой на 3D-риге: синхронизируем прицел/натяжение, удар мечом при прорыве
+  hero.aim = state.aim;
+  hero.pull = state.bowPull;
+  // акт выстрела на риге — при спуске тетивы
+  if (state.recoilT > 0.125 && hero.fireT < 0) { /* fireT запускается в drawHero через pull→0 */ }
+  // враг у стены → герой бьёт мечом (урон по всем прорвавшимся)
+  const wallEnemy = enemies.some(e => !e.dead && e.x <= WALL_X + 4);
+  if (wallEnemy && hero.meleeT < 0) {
+    heroMelee(hero);
+    sfx('shot');
+    for (const e of enemies) {
+      if (!e.dead && e.x <= WALL_X + 6) damageEnemy(e, totalBowDmg() * 0.5, false);
+    }
+  }
+  updateHero(hero, dt);
+
   // волны
   if (state.spawnQueue > 0) {
     state.spawnTimer -= dt;
@@ -1695,9 +1790,12 @@ function update(dt) {
     if (state.waveTimer <= 0) {
       if (state.waveInDay >= BAL.wavesPerDay) {
         // новый день
+        state.stats.wavesCleared = (state.stats.wavesCleared || 0) + 1;
+        if (!state.flawlessNow) state.stats.flawlessWaves = (state.stats.flawlessWaves || 0) + 1;
         state.day++;
         state.waveInDay = 0;
         state.skillPts += TB().pointsPerDay;
+        state.stats.skillPtsEarned = (state.stats.skillPtsEarned || 0) + TB().pointsPerDay;
         saveGame();
         state.stats.daysSurvived = Math.max(state.stats.daysSurvived, state.day);
         state.castleHp = Math.min(maxCastleHp(),
@@ -1712,6 +1810,8 @@ function update(dt) {
         state.waveTimer = BAL.waveBreakSec;
       } else {
         sfx('wave');
+        state.stats.wavesCleared = (state.stats.wavesCleared || 0) + 1;
+        if (!state.flawlessNow) state.stats.flawlessWaves = (state.stats.flawlessWaves || 0) + 1;
         startWave();
         state.waveTimer = BAL.waveBreakSec;
       }
@@ -1766,6 +1866,7 @@ function update(dt) {
       if (e.atkT <= 0) {
         e.atkT = 1.0;
         state.castleHp -= e.dmg;
+        state.flawlessNow = (state.flawlessNow || 0) + 1;
         sfx('hurt');
         // шипованный вал (узел «Шипованный вал»): враг ранится об стену
         if (TB().wallThorns > 0) damageEnemy(e, TB().wallThorns, false);
@@ -1874,7 +1975,45 @@ function drawEnemyAtlas(e, x, y, time, step) {
   // враги идут справа налево → отражаем по горизонтали
   const flash = e.hitT > 0 ? Math.min(0.75, e.hitT * 5) : 0;
   drawAtlasSprite(painter, e.sprKey, e.sprVari, sx, sy, k, true, flash);
+  e._h = h;                    // высота спрайта — чтобы полоска HP висела над головой
   return true;
+}
+// ---------- Полоски HP над врагами ----------
+// Цвет по мере убывания: зелёный → жёлтый → красный. Боссы — широкая полоса
+// с золотой рамкой, обычные враги — тонкая и только когда уже ранены.
+const HP_COL = {
+  bg: 0xCC0A0705,          // подложка (A=CC)
+  hi: 0x60FFFFFF,          // блик сверху
+  boss: 0xFF2030D0,        // босс — красный
+  good: 0xFF40D060,        // >50% — зелёный
+  mid:  0xFF20D0E0,        // >25% — жёлто-оранжевый
+  low:  0xFF2020D0,        // <=25% — тёмно-красный
+};
+function barRect(painter, x, y, w, h, c, a) {
+  if (w <= 0 || h <= 0) return;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) painter.put(x + i, y + j, c, a);
+}
+function drawEnemyBars(painter) {
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const maxHp = e.maxHp || 1;
+    const frac = Math.max(0, Math.min(1, (e.hp || 0) / maxHp));
+    const isBoss = !!e.isBoss;
+    // целых врагов не засоряем полосками — только раненых и боссов
+    if (!isBoss && frac >= 0.999) continue;
+    const w = isBoss ? 44 : 18;
+    const h = isBoss ? 4 : 2;
+    const hgt = e._h || (isBoss ? 56 : e.kind === 'ogre' ? 44 : e.kind === 'skeleton' ? 30 : 32);
+    const bx = Math.round(e.x - w / 2);
+    const by = Math.round(e.y - hgt - (isBoss ? 9 : 6));
+    // рамка у боссов — золотая, читается на любом фоне
+    if (isBoss) barRect(painter, bx - 2, by - 2, w + 4, h + 4, 0xFF4FA4C9);   // золото 0xC9A44F → ABGR(A,B,G,R)
+    barRect(painter, bx - 1, by - 1, w + 2, h + 2, HP_COL.bg);
+    const fill = isBoss ? HP_COL.boss : (frac > 0.5 ? HP_COL.good : frac > 0.25 ? HP_COL.mid : HP_COL.low);
+    const fw = Math.max(1, Math.round(w * frac));
+    barRect(painter, bx, by, fw, h, fill);
+    barRect(painter, bx, by, fw, 1, HP_COL.hi);
+  }
 }
 function drawLootDropsSafe(painter) {
   for (const d of state.loot) drawLootDrop(painter, d, state.time);
@@ -1886,13 +2025,15 @@ function render(dt) {
   drawSun(painter, W - 124, 60, state.time);
   drawClouds(painter, W, state.time);
   drawParallax(painter, W, GROUND, state.time, state.time * 6);
+  drawDepthHaze(painter, W, GROUND, state.time);   // атмосферная перспектива над горами
   drawGround(painter, W, GROUND);
   // деревья и кусты — только ПРАВЕЕ замка, чтобы не «прорастать» сквозь стену
   drawScenery(painter, W, GROUND, state.time, WALL_X + 12);
   weather.drawWeatherBack(painter, state.weather);          // пелена дождя / туман
   drawCastle(painter, GROUND, state.castleHp / maxCastleHp(), state.time);
   drawStructures(painter, state.structs, state.time);
-  drawArcher(painter, ARCHER.x, ARCHER.y, state.aim, state.firing, state.time, state.bowPull, state.recoilT > 0, heroGear());
+  // старый процедурный лучник отключён: героя рисует 3D-риг (hero-act.js)
+  drawHero(frame, hero, heroGear());
 
   // эффекты за персонажами
   for (const fx of fxs) fx.draw(frame, 'back');
@@ -1906,6 +2047,7 @@ function render(dt) {
   frame.ox = -ox; frame.oy = -oy;
 
   for (const e of enemies) drawEnemy(painter, e, state.time, drawEnemyAtlas);
+  drawEnemyBars(painter);      // ХП врагов и боссов над головами
   drawParticles(painter, state.particles);
   drawLootDropsSafe(painter);
   // трейл стрел: тающий след позади + золотое свечение крита
@@ -2084,6 +2226,16 @@ function ensureDaily() {
   }
   return state.daily;
 }
+function ensureWeekly() {
+  const key = weekKey();
+  if (!state.weekly || state.weekly.week !== key) {
+    const snap = {};
+    for (const q of pickWeekly(key)) snap[q.metric] = state.stats[q.metric] || 0;
+    state.weekly = { week: key, snapshot: snap, taken: {} };
+    saveGame();
+  }
+  return state.weekly;
+}
 
 function dailyQuests() { return ensureDaily().snapshot ? pickDaily(state.daily.date) : []; }
 
@@ -2114,6 +2266,16 @@ function questReadyCount() {
     const done = questProgress(q, state.stats, d.snapshot) >= q.target;
     if (done && !d.taken[q.key]) n++;
   }
+  const w = ensureWeekly();
+  for (const q of pickWeekly(w.week)) {
+    const done = questProgress(q, state.stats, w.snapshot) >= q.target;
+    if (done && !w.taken[q.id]) n++;
+  }
+  // выполненные, но не забранные главы кампании
+  try {
+    const cs = campaignState(state, state.campaign);
+    for (const r of cs.rows) if (r.done && !r.claimed) n++;
+  } catch (e) {}
   // незабранные достижения
   n += Math.max(0, achCount() - (state.seenAch || 0));
   return n;
@@ -2145,13 +2307,15 @@ function setQuestTab(tab) {
   questTab = tab;
   document.querySelectorAll('.qtab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.getElementById('qDaily').style.display = tab === 'daily' ? '' : 'none';
+  document.getElementById('qWeekly').style.display = tab === 'weekly' ? '' : 'none';
+  document.getElementById('qCampaign').style.display = tab === 'campaign' ? '' : 'none';
   document.getElementById('qAch').style.display = tab === 'ach' ? '' : 'none';
   renderQuests();
 }
 
 function renderQuests() {
   const d = ensureDaily();
-  const wrap = questTab === 'daily' ? document.getElementById('qDaily') : document.getElementById('qAch');
+  const wrap = document.getElementById({ daily: 'qDaily', weekly: 'qWeekly', campaign: 'qCampaign', ach: 'qAch' }[questTab]);
   if (!wrap) return;
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -2179,6 +2343,63 @@ function renderQuests() {
     wrap.querySelectorAll('[data-qclaim]').forEach(btn => {
       bindTap(btn, () => claimQuest(btn.dataset.qclaim));
     });
+  } else if (questTab === 'weekly') {
+    const w = ensureWeekly();
+    const qs = pickWeekly(w.week);
+    const rows = qs.map(q => {
+      const cur = Math.min(q.target, questProgress(q, state.stats, w.snapshot));
+      const done = cur >= q.target;
+      const claimed = !!w.taken[q.id];
+      const pct = Math.round(cur / q.target * 100);
+      const action = claimed
+        ? '<span class="qreward">✓ получено</span>'
+        : done
+          ? `<button class="qget" data-wclaim="${esc(q.id)}">Забрать</button>`
+          : `<span class="qreward">🪙 ${fmt(q.reward)}</span>`;
+      return `<div class="qitem ${claimed ? 'claimed' : done ? 'done' : ''}">
+        <div class="qic">${done ? '✅' : '🗓️'}</div>
+        <div class="qmain">
+          <div class="qname">${esc(q.text)}</div>
+          <div class="qbar"><div class="qbarfill" style="width:${pct}%"></div></div>
+          <div class="qprog">${fmt(cur)} / ${fmt(q.target)}</div>
+        </div>${action}</div>`;
+    }).join('');
+    wrap.innerHTML = `<div class="qsection">НЕДЕЛЯ ${esc(w.week)} · ОБНОВЛЯЕТСЯ В ПОНЕДЕЛЬНИК</div>${rows}`;
+    wrap.querySelectorAll('[data-wclaim]').forEach(btn => {
+      bindTap(btn, () => claimWeekly(btn.dataset.wclaim));
+    });
+  } else if (questTab === 'campaign') {
+    const cs = campaignState(state, state.campaign);
+    const total = cs.rows.length;
+    const got = cs.rows.filter(r => r.claimed).length;
+    let unlocked = true;      // главы открываются по цепочке
+    const rows = cs.rows.map((r, i) => {
+      const ch = r.ch;
+      const ready = r.done && !r.claimed;
+      const locked = !unlocked && !r.claimed && !ready;
+      const prevDone = i === 0 ? true : cs.rows[i - 1].done;
+      // глава считается доступной, если все предыдущие ВЫПОЛНЕНЫ
+      const reachable = i === 0 ? true : cs.rows.slice(0, i).every(x => x.done);
+      const action = r.claimed
+        ? '<span class="qreward">✓ получено</span>'
+        : ready
+          ? `<button class="qget" data-cclaim="${esc(ch.id)}">Забрать</button>`
+          : `<span class="qreward">🪙 ${fmt(ch.gold)}${ch.skill ? ' · 📘' + ch.skill : ''}</span>`;
+      const lore = (!reachable)
+        ? '<div class="qdesc">🔒 Глава закрыта — заверши предыдущую</div>'
+        : `<div class="qlore">${esc(ch.lore)}</div>`;
+      return `<div class="qitem chap ${r.claimed ? 'claimed' : ready ? 'done' : ''}" style="${reachable ? '' : 'opacity:.55'}">
+        <div class="qic">${ch.icon}</div>
+        <div class="qmain">
+          <div class="qname">Глава ${i + 1}. ${esc(ch.name)}</div>
+          <div class="qdesc">${esc(ch.desc)}</div>
+          ${lore}
+        </div>${action}</div>`;
+    }).join('');
+    wrap.innerHTML = `<div class="qsection">ПОХОД · ПРОЙДЕНО ${got} / ${total}</div>${rows}`;
+    wrap.querySelectorAll('[data-cclaim]').forEach(btn => {
+      bindTap(btn, () => claimCampaign(btn.dataset.cclaim));
+    });
   } else {
     const done = ACHIEVEMENTS.filter(a => state.ach[a.id]);
     const todo = ACHIEVEMENTS.filter(a => !state.ach[a.id]);
@@ -2202,6 +2423,48 @@ function renderQuests() {
       (done.length ? done.map(a => row(a, true)).join('') : '<div class="qdesc" style="padding:6px">Пока ни одного — начни осаду!</div>') +
       (todo.length ? '<div class="qsection">ЕЩЁ НЕ ОТКРЫТЫ</div>' + todo.map(a => row(a, false)).join('') : '');
   }
+}
+
+function claimCampaign(id) {
+  const ch = CAMPAIGN.find(c => c.id === id);
+  if (!ch) return;
+  state.campaign = state.campaign || {};
+  if (state.campaign[id]) return;
+  let ok = false;
+  try { ok = ch.cond(state); } catch (e) { ok = false; }
+  if (!ok) return;
+  state.campaign[id] = 1;
+  state.gold += ch.gold;
+  state.stats.totalGold += ch.gold;
+  if (ch.skill) state.skillPts += ch.skill;
+  sfx('bossKill');
+  toast(`📖 ${ch.name}: +${fmt(ch.gold)} золота${ch.skill ? ' · +' + ch.skill + ' 📘' : ''}`);
+  state.shakeT = Math.max(state.shakeT || 0, 0.3);
+  for (let i = 0; i < 14; i++) {
+    state.particles.push({ x: 200 + (Math.random() - 0.5) * 200, y: 120 + Math.random() * 60,
+      vx: (Math.random() - 0.5) * 60, vy: -40 - Math.random() * 60,
+      life: 1.0 + Math.random() * 0.6, max: 1.6, col: '#ffd166', g: 90, r: 2 });
+  }
+  saveGame();
+  renderQuests();
+  updateQuestBadge();
+  updateHud();
+}
+
+function claimWeekly(id) {
+  const w = ensureWeekly();
+  const q = pickWeekly(w.week).find(x => x.id === id);
+  if (!q || w.taken[id]) return;
+  if (questProgress(q, state.stats, w.snapshot) < q.target) return;
+  w.taken[id] = 1;
+  state.gold += q.reward;
+  state.stats.totalGold += q.reward;
+  sfx('bossKill');
+  toast(`🗓️ Недельное задание: +${fmt(q.reward)} золота`);
+  saveGame();
+  renderQuests();
+  updateQuestBadge();
+  updateHud();
 }
 
 function claimQuest(key) {
@@ -2282,7 +2545,8 @@ function renderTreePtsOnly() {
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
 window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene,
-  checkAchievements, dailyQuests, claimQuest, questReadyCount, openQuests, renderQuests, ACHIEVEMENTS };
+  checkAchievements, dailyQuests, claimQuest, claimWeekly, questReadyCount, openQuests, renderQuests,
+  ACHIEVEMENTS, CAMPAIGN, pickWeekly, ensureWeekly, campaignState, claimCampaign, saveGame };
 // спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
 Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
   window.__dbg.atlas = atlasSprites;
@@ -2290,5 +2554,6 @@ Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then
   toast('🎨 Спрайты и иконки загружены');
 }).catch(() => {});
 ensureDaily();
+ensureWeekly();
 updateQuestBadge();
 requestAnimationFrame(tick);

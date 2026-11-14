@@ -9,27 +9,37 @@ const COL = {
 
 // ---------- Параллакс: дальние горы и лес ----------
 // Рисуется под небом, смещается медленно (глубина). Не мешает геймплею.
+// v3.3: атмосферная перспектива — дальние слои светлее и холоднее,
+// с «дымкой» на стыке; объём задаётся освещёнными/теневыми гранями.
 export function drawParallax(p, w, groundY, time, scrollX = 0) {
-  // три слоя гор разной дальности
+  // три слоя гор разной дальности (+ альфа-дымка по мере приближения)
   const layers = [
-    { y: groundY - 118, h: 46, col: hex('#2a2634'), step: 90, off: 0.0 },
-    { y: groundY - 104, h: 36, col: hex('#353045'), step: 120, off: 0.5 },
-    { y: groundY - 92,  h: 28, col: hex('#413a55'), step: 150, off: 1.0 },
+    { y: groundY - 118, h: 46, col: hex('#464058'), step: 90, off: 0.0, far: 1 },
+    { y: groundY - 104, h: 36, col: hex('#3a344e'), step: 120, off: 0.5, far: 0 },
+    { y: groundY - 92,  h: 28, col: hex('#322c42'), step: 150, off: 1.0, far: 0 },
   ];
   for (const L of layers) {
+    const shadow = hex('#201c2e');          // теневая грань (северо-запад)
     for (let x = -40; x < w + 40; x += L.step) {
       const ox = x - Math.round((scrollX * 0.15 + L.off * L.step) % L.step);
-      // треугольник горы
+      // треугольник горы: левая грань светлее (солнце справа), правая — тень
       for (let i = 0; i < L.h; i++) {
         const hw = Math.round(L.h * 0.8 * (1 - i / L.h));
+        const lit = Math.round(hw * 0.55);         // освещённая часть (слева от пика)
         for (let dx = -hw; dx <= hw; dx++) {
-          p.put(ox + dx, L.y + L.h - i, L.col);
+          p.put(ox + dx, L.y + L.h - i, dx < -lit ? shadow : L.col);
         }
       }
       // снежная шапка у верхнего слоя
       if (L.off === 0) {
-        for (let dx = -3; dx <= 3; dx++) p.put(ox + dx, L.y - 1, hex('#6a6480'));
-        p.put(ox, L.y - 2, hex('#8a84a0'));
+        for (let dx = -3; dx <= 3; dx++) p.put(ox + dx, L.y - 1, hex('#8a84a0'));
+        p.put(ox, L.y - 2, hex('#a49ec0'));
+        // блик на освещённой вершине
+        p.put(ox - 2, L.y, hex('#b8b2d0'));
+      }
+      // мягкая дымка у подножия каждого слоя (глубина)
+      for (let d = 0; d < 5; d++) {
+        p.put(ox + Math.round(L.h * 0.25), L.y + L.h + d, hex('#8a7a98'), 0.08);
       }
     }
   }
@@ -39,6 +49,24 @@ export function drawParallax(p, w, groundY, time, scrollX = 0) {
     for (let i = 0; i < hh; i++) {
       const hw = Math.round((hh - i) * 0.35);
       for (let dx = -hw; dx <= hw; dx++) p.put(x + dx, groundY - 56 + i, hex('#1e2a1a'));
+    }
+  }
+}
+
+// ---------- Атмосферная перспектива (глубинный туман) ----------
+// Лёгкая дымка между горным хребтом и полем боя — «воздух» между планами.
+// Детерминированная, дрейфует очень медленно.
+export function drawDepthHaze(p, w, groundY, time) {
+  const bandTop = groundY - 62, bandH = 34;
+  const drift = Math.sin(time * 0.18) * 6;
+  for (let y = bandTop; y < bandTop + bandH; y++) {
+    // вертикальный градиент плотности: гуще к низу полосы
+    const k = ((y - bandTop) / bandH) * 0.16;
+    for (let x = 0; x < w; x += 1) {
+      // волнистая плотность, чтобы туман не был «простынёй»
+      const wob = Math.sin((x + drift * 8) * 0.045 + y * 0.12) * 0.045;
+      const a = Math.max(0, k + wob);
+      if (a > 0.015) p.put(x, y, hex('#9c8fa8'), a);
     }
   }
 }
