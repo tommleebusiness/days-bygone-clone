@@ -10,7 +10,10 @@ export const BAL = {
   waveBreakSec: 3.0,            // пауза между волнами
   enemiesBase: 4,               // врагов в первой волне
   enemiesPerDay: 1.6,           // +врагов за день (накопительно, округл.)
-  enemyGapSec: 0.9,             // интервал появления
+  enemiesCap: 26,               // потолок численности волны (перф/читаемость)
+  enemyGapSec: 0.9,             // базовый интервал появления
+  enemyGapPerDay: 0.045,        // сжатие интервала за день (мин 0.45)
+  enemyGapMin: 0.45,
 
   // --- Враги ---
   enemyHp(day, waveInDay) {
@@ -77,4 +80,6 @@ export function fireRateCost(lvl) { return Math.ceil(BAL.fireRateBaseCost * Math
 export function multishotCost(lvl) { return Math.ceil(BAL.multishotBaseCost * Math.pow(BAL.multishotCostGrowth, lvl)); }
 export function critCost(lvl) { return Math.ceil(BAL.critBaseCost * Math.pow(BAL.critCostGrowth, lvl)); }
 export function pierceCost(lvl) { return Math.ceil(BAL.pierceBaseCost * Math.pow(BAL.pierceCostGrowth, lvl)); }
+export function enemyGap(day) { return Math.max(BAL.enemyGapMin, BAL.enemyGapSec - (day - 1) * BAL.enemyGapPerDay); }
+export function waveCount(day) { return Math.min(BAL.enemiesCap, Math.round(BAL.enemiesBase + (day - 1) * BAL.enemiesPerDay)); }
 export function bowDmg(lvl, era) { return BAL.bowBaseDmg * Math.pow(BAL.bowDmgPerLvl, lvl) * BAL.eraLegacy(era).startDmgMult; }

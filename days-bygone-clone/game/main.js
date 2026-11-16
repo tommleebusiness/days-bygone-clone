@@ -11,8 +11,9 @@ import * as hitFlashFx from "./fx/small-hit.js?v=1";
 import * as floatTextFx from "./fx/float-text.js?v=1";
 import * as torchFx from "./fx/small-torch.js?v=4";
 
-import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg }
-  from "./balance.js?v=2";
+import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg,
+         enemyGap, waveCount }
+  from "./balance.js?v=3";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=14";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles,
@@ -495,7 +496,7 @@ function startWave() {
   state.flawlessNow = 0;          // новая волна: стены ещё целы
   const day = state.day;
   const isBossWave = state.waveInDay === BAL.wavesPerDay && day % 1 === 0;
-  state.spawnQueue = Math.round(BAL.enemiesBase + (day - 1) * BAL.enemiesPerDay);
+  state.spawnQueue = waveCount(day);
   state.bossPending = isBossWave;
   state.spawnTimer = 0;
   document.getElementById('waveNum').textContent = state.waveInDay;
@@ -1866,7 +1867,7 @@ function update(dt) {
   // волны
   if (state.spawnQueue > 0) {
     state.spawnTimer -= dt;
-    if (state.spawnTimer <= 0) { spawnEnemy(); state.spawnQueue--; state.spawnTimer = BAL.enemyGapSec; }
+    if (state.spawnTimer <= 0) { spawnEnemy(); state.spawnQueue--; state.spawnTimer = enemyGap(state.day); }
   } else if (state.bossPending && enemies.length === 0) {
     state.bossPending = false;
     spawnBoss();
