@@ -87,6 +87,21 @@ const ctx = canvas.getContext('2d');
 // ---------- 3D-слой врагов ----------
 const enemies3dCanvas = document.getElementById('enemies3d');
 let enemies3d = null, enemies3dReady = false, enemies3dOff = false;
+
+// ---------- 3D-мир осады (замок, земля, горы, лучник) ----------
+const world3dCanvas = document.getElementById('world3d');
+let world3d = null, world3dReady = false, world3dOff = false;
+function bootWorld3D() {
+  if (world3d || world3dOff || !world3dCanvas || !window.WebGLRenderingContext) return;
+  import('./world3d.js?v=11').then(m => {
+    world3d = m.initWorld3D(world3dCanvas, { w: W, h: H, groundY: GROUND, wallX: WALL_X });
+    if (world3d) {
+      world3dReady = true;
+      document.body.classList.add('world3d');
+      fitScreen();
+    } else world3dOff = true;
+  }).catch(() => { world3dOff = true; });
+}
 let enemyIdSeq = 0;
 const e3list = [];
 function bootEnemies3D() {
@@ -139,6 +154,15 @@ function fitScreen() {
   canvas.style.height = cssH + 'px';
   canvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
   canvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
+  // 3D-мир осады — тот же прямоугольник, что и игровой канвас
+  if (world3dCanvas) {
+    world3dCanvas.width = W; world3dCanvas.height = H;
+    world3dCanvas.style.width = cssW + 'px';
+    world3dCanvas.style.height = cssH + 'px';
+    world3dCanvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
+    world3dCanvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
+    world3d?.resize(cssW, cssH);
+  }
   // 3D-слой врагов — ровно поверх игрового канваса
   if (enemies3dCanvas) {
     enemies3dCanvas.width = W; enemies3dCanvas.height = H;
@@ -615,20 +639,28 @@ function fireVolley() {
   toast('🏹 ЗАЛП!');
 }
 
+// Лук всегда смотрит вправо (к врагам): ограничение угла по вертикали.
+// Без него баллистика на ближней дистанции уводит прицел почти вниз/назад.
+// Верхний предел должен хватать и на крупного босса (огры — угол до ~0.45).
+function clampAim(a) { return Math.max(-0.5, Math.min(0.62, a)); }
+
 function shoot() {
   const n = arrowsPerShot();
-  // цель — ближайший враг перед стеной
+  // цель — ближайший ЖИВОЙ враг (включая дошедшего до стены: раньше такие
+  // враги не попадали в выборку и лучник «не стрелял вообще»)
   let target = null;
-  for (const e of enemies) if (!e.dead && e.x > WALL_X + 28 && (!target || e.x < target.x)) target = e;
+  for (const e of enemies) if (!e.dead && e.x > WALL_X - 6 && (!target || e.x < target.x)) target = e;
   const _o = bowPoint(hero.x, hero.y, state.aim, state.bowPull);
   const sx = _o.x, sy = _o.y;
   let baseA = state.aim;
   if (target) {
-    // баллистика: попадаем в центр врага с компенсацией гравитации
+    // баллистика с МИНИМАЛЬНЫМ временем полёта: при враге вплотную к стене
+    // t→0 давало угол ~79° вниз и стрела падала под ноги — теперь угол
+    // ограничен диапазоном, лук всегда смотрит вправо, на врага.
     const tx = target.x, ty = target.y - (target.kind === 'ogre' ? 9 : 6);
-    const t = (tx - sx) / BAL.arrowSpeed;
+    const t = Math.max(0.28, (tx - sx) / BAL.arrowSpeed);
     const vy = (ty - sy - 0.5 * ARROW_G * t * t) / t;
-    baseA = Math.atan2(vy, BAL.arrowSpeed);
+    baseA = clampAim(Math.atan2(vy, BAL.arrowSpeed));
   }
   for (let i = 0; i < n; i++) {
     const spread = (i - (n - 1) / 2) * 0.10;
@@ -1825,14 +1857,14 @@ function tick(now) {
 }
 
 function update(dt) {
-  // прицел на ближайшего врага
+  // прицел на ближайшего ЖИВОГО врага (мёртвые больше не «залипают» в прицеле)
   let nearest = null;
-  for (const e of enemies) if (!nearest || e.x < nearest.x) nearest = e;
-  if (nearest && nearest.x > WALL_X + 28) {
+  for (const e of enemies) if (!e.dead && (!nearest || e.x < nearest.x)) nearest = e;
+  if (nearest && nearest.x > WALL_X - 6) {
     const _ao = bowPoint(hero.x, hero.y, state.aim, state.bowPull);
-    const t = (nearest.x - _ao.x) / BAL.arrowSpeed;
+    const t = Math.max(0.28, (nearest.x - _ao.x) / BAL.arrowSpeed);
     const vy = ((nearest.y - 8) - _ao.y - 0.5 * ARROW_G * t * t) / t;
-    state.aim = Math.atan2(vy, BAL.arrowSpeed);
+    state.aim = clampAim(Math.atan2(vy, BAL.arrowSpeed));
   } else {
     state.aim = -0.35;
   }
@@ -1843,7 +1875,7 @@ function update(dt) {
   state.bowPull = Math.max(0, Math.min(1, 1 - state.fireCooldown * fr));
   state.recoilT = Math.max(0, state.recoilT - dt);
   state.sparkT = Math.max(0, state.sparkT - dt);
-  if (nearest && nearest.x > WALL_X + 28) {
+  if (nearest && nearest.x > WALL_X - 6) {
     if (state.fireCooldown <= 0) { shoot(); state.fireCooldown = 1 / fr; state.recoilT = 0.13; state.sparkT = 0.09; }
   } else state.firing = false;
   if (state.fireCooldown < 1 / fr - 0.08) state.firing = false;
@@ -2039,8 +2071,10 @@ function update(dt) {
     if (volleyTick(a, dt)) { arrows.splice(i, 1); continue; }
     for (const e of enemies) {
       if (e.dead || a.hitIds.has(e)) continue;
-      const ex = e.x, ey = e.y - (e.isBoss ? 24 : 10);
-      if (Math.abs(a.x - ex) < 14 && Math.abs(a.y - ey) < 26) {
+      // точное столкновение по высоте врага: босс заметно выше обычного
+      const hgt = enemyHeight(e);
+      const ex = e.x, ey = e.y - hgt * 0.62;
+      if (Math.abs(a.x - ex) < Math.max(14, hgt * 0.34) && Math.abs(a.y - ey) < Math.max(26, hgt * 0.72)) {
         // дракончик уклоняется — стрела проходит мимо
         if (enemyEvades(e)) {
           a.hitIds.add(e);
@@ -2131,6 +2165,58 @@ function enemyHeight(e) {
     default: return 33;
   }
 }
+// Полоски HP ПОВЕРХ всех слоёв: рисуем в 2D-контекст напрямую после
+// композитинга, в экранных координатах. Так они не зависят от frame.ox
+// (тряски) и гарантированно видны над WebGL-слоем врагов.
+function drawEnemyBarsOverlay(ctx) {
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const maxHp = e.maxHp || 1;
+    const frac = Math.max(0, Math.min(1, (e.hp || 0) / maxHp));
+    const isBoss = !!e.isBoss;
+    const dim = (!isBoss && frac >= 0.999) ? 0.45 : 1;
+    const w = isBoss ? 46 : 18, h = isBoss ? 4 : 2;
+    const hgt = enemyHeight(e);
+    const punch = e.hitSq ? Math.round(e.hitSq * 3) : 0;
+    const bx = Math.round(e.x - w / 2);
+    const by = Math.round(e.y - hgt - (isBoss ? 10 : 7) + punch);
+    if (bx < -60 || bx > W + 60) continue;
+    ctx.save();
+    ctx.globalAlpha = dim;
+    // свечение после удара
+    if (e.hitFlash > 0) {
+      ctx.globalAlpha = Math.min(1, e.hitFlash * 3);
+      ctx.fillStyle = '#ffe0a0';
+      ctx.fillRect(bx - 3, by - 3, w + 6, h + 6);
+      ctx.globalAlpha = dim;
+    }
+    // тёмная «рубашка» вокруг — чтобы полоска читалась на любом фоне
+    ctx.fillStyle = 'rgba(0,0,0,.85)';
+    ctx.fillRect(bx - 3, by - 3, w + 6, h + 6);
+    // рамка босса — золотая
+    if (isBoss) { ctx.fillStyle = '#c9a44f'; ctx.fillRect(bx - 2, by - 2, w + 4, h + 4); }
+    // подложка
+    ctx.fillStyle = '#140c08';
+    ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
+    // заливка — ярче, с градиентом
+    const col = isBoss ? '#e83018' : (frac > 0.5 ? '#6ee84a' : frac > 0.25 ? '#f0d820' : '#e82626');
+    ctx.fillStyle = col;
+    ctx.fillRect(bx, by, Math.max(1, Math.round(w * frac)), h);
+    // чёткая верхняя блик-линия
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fillRect(bx, by, Math.max(1, Math.round(w * frac)), 1);
+    // блик
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.fillRect(bx, by, Math.max(1, Math.round(w * frac)), 1);
+    // деления у босса
+    if (isBoss) {
+      ctx.fillStyle = 'rgba(20,10,6,.85)';
+      for (const q of [0.25, 0.5, 0.75]) ctx.fillRect(Math.round(bx + w * q), by - 2, 1, h + 4);
+    }
+    ctx.restore();
+  }
+}
+
 function drawEnemyBars(painter) {
   for (const e of enemies) {
     if (e.dead) continue;
@@ -2179,19 +2265,34 @@ function render(dt) {
   else for (const e of enemies) e._d3 = false;
   clearFrame(frame);
 
-  drawSky(painter, W, H);
-  drawSun(painter, W - 124, 60, state.time);
-  drawClouds(painter, W, state.time);
-  drawParallax(painter, W, GROUND, state.time, state.time * 6);
-  drawDepthHaze(painter, W, GROUND, state.time);   // атмосферная перспектива над горами
-  drawGround(painter, W, GROUND);
-  // деревья и кусты — только ПРАВЕЕ замка, чтобы не «прорастать» сквозь стену
-  drawScenery(painter, W, GROUND, state.time, WALL_X + 12);
+  // ---- 3D-МИР ОСАДЫ ----
+  // Если WebGL-мир активен, фон (небо/горы/земля/замок/лучник/постройки)
+  // рисуется в 3D: 2D-дубли не нужны. Оставляем только эффекты, снаряды,
+  // частицы, полоски HP и FX — они идут поверх объёмной сцены.
+  if (!world3dReady && !world3dOff) bootWorld3D();
+  const in3D = world3dReady;
+  if (in3D) {
+    world3d.sync({
+      heroX: hero.x, heroY: hero.y, aim: state.aim, pull: state.bowPull,
+      recoil: state.recoilT, structs: state.structs, time: state.time,
+      castleHp: state.castleHp, maxCastleHp: maxCastleHp(),
+    }, dt);
+    world3d.render();
+  } else {
+    drawSky(painter, W, H);
+    drawSun(painter, W - 124, 60, state.time);
+    drawClouds(painter, W, state.time);
+    drawParallax(painter, W, GROUND, state.time, state.time * 6);
+    drawDepthHaze(painter, W, GROUND, state.time);
+    drawGround(painter, W, GROUND);
+    drawScenery(painter, W, GROUND, state.time, WALL_X + 12);
+  }
   weather.drawWeatherBack(painter, state.weather);          // пелена дождя / туман
-  drawCastle(painter, GROUND, state.castleHp / maxCastleHp(), state.time);
-  drawStructures(painter, state.structs, state.time);
-  // старый процедурный лучник отключён: героя рисует 3D-риг (hero-act.js)
-  drawHero(frame, hero, heroGear());
+  if (!in3D) {
+    drawCastle(painter, GROUND, state.castleHp / maxCastleHp(), state.time);
+    drawStructures(painter, state.structs, state.time);
+    drawHero(frame, hero, heroGear());
+  }
 
   // эффекты за персонажами
   for (const fx of fxs) fx.draw(frame, 'back');
@@ -2245,9 +2346,10 @@ function render(dt) {
   ambient.torchL.draw(frame, 'front');
   ambient.torchR.draw(frame, 'front');
 
-  composite(frame, img.data, 0x0d0a08);
+  composite(frame, img.data, in3D ? null : 0x0d0a08);   // в 3D-режиме фон прозрачный: виден WebGL-мир
   frame.ox = 0; frame.oy = 0;
   ctx.putImageData(img, 0, 0);
+  drawEnemyBarsOverlay(ctx);   // HP-полоски поверх всех слоёв
 
   // ---- 3D-слой врагов: синхронизируем и рисуем в WebGL поверх 2D-сцены
   if (enemies3dReady || (!enemies3dOff && enemies.length)) bootEnemies3D();
@@ -2749,7 +2851,8 @@ buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
 window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene,
   checkAchievements, dailyQuests, claimQuest, claimWeekly, questReadyCount, openQuests, renderQuests, e3list,
   ACHIEVEMENTS, CAMPAIGN, pickWeekly, ensureWeekly, campaignState, claimCampaign, saveGame,
-  e3: () => enemies3d, bootE3: bootEnemies3D };
+  e3: () => enemies3d, bootE3: bootEnemies3D,
+  w3: () => world3d, world3dReady: () => world3dReady, world3dOff: () => world3dOff, bootW3: bootWorld3D };
 // спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
 Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
   window.__dbg.atlas = atlasSprites;
