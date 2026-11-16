@@ -147,12 +147,19 @@ const BOW_COL = {
   limb: hex('#7a5a32'), limbD: hex('#4a3420'), grip: hex('#c9a44f'),
   string: hex('#d8d0c0'), shaft: hex('#c8b48a'), head: hex('#e8e8f0'),
 };
-function drawBow(p, x, y, pull, aim, vib = 0) {
+function drawBow(p, x, y, pull, aim, vib = 0, ox = 0, oy = 0) {
+  // (ox, oy) — начало координат painter'а (place() = ноги героя).
+  // put() ждёт ЭКРАННЫЕ координаты, а line() — ЛОКАЛЬНЫЕ (сам прибавит ox/oy),
+  // поэтому для line() вычитаем начало координат.
+  // ВАЖНО: painter.place(x,y) активен. put() ждёт ЭКРАННЫЕ координаты
+  // (трансформацию применяем вручную через rot), а line() ждёт ЛОКАЛЬНЫЕ —
+  // он сам прибавляет tx/ty внутри. Раньше в line передавали экранные
+  // координаты, и тетива/стрела уезжали на дорогу с двойным смещением.
   const a = Math.max(-0.5, Math.min(0.9, aim)) * 0.55;   // наклон по углу прицела
   const ca = Math.cos(a), sa = Math.sin(a);
   const rot = (dx, dy) => [Math.round(dx * ca - dy * sa), Math.round(dx * sa + dy * ca)];
   const H = 13;                                          // половина длины лука
-  // ---- дуга (лимб): выгиб вперёд, толщиной в два тона
+  // ---- дуга (лимб): выгиб вперёд, толщиной в два тона (put = экранные)
   for (let t = -H; t <= H; t++) {
     const u = t / H;
     const bow = 4.5 * (1 - u * u);
@@ -160,11 +167,15 @@ function drawBow(p, x, y, pull, aim, vib = 0) {
     p.put(x + r1[0], y + r1[1], BOW_COL.limb);
     p.put(x + r2[0], y + r2[1], BOW_COL.limbD);
   }
-  // ---- тетива: от кончиков к точке натяжения
+  // ---- тетива и стрела: p.line() рисует ОТНОСИТЕЛЬНО place() (ноги героя),
+  // а не центра лука! Раньше не добавляли (BOW_OX, BOW_OY) — тетива
+  // рисовалась на 16px левее и ниже центра, «у пояса». Теперь всё line()
+  // смещаем на локальный центр лука (cx, cy) относительно ног.
+  const gx = (px) => px - ox, gy = (py) => py - oy;   // экранные → локальные для line()
   const nx = -1.5 - pull * 6.5 + vib;
   const tT = rot(0, -H), tB = rot(0, H), nk = rot(nx, 0);
-  p.line(x + tT[0], y + tT[1], x + nk[0], y + nk[1], BOW_COL.string, 1);
-  p.line(x + tB[0], y + tB[1], x + nk[0], y + nk[1], BOW_COL.string, 1);
+  p.line(gx(x + tT[0]), gy(y + tT[1]), gx(x + nk[0]), gy(y + nk[1]), BOW_COL.string, 1);
+  p.line(gx(x + tB[0]), gy(y + tB[1]), gx(x + nk[0]), gy(y + nk[1]), BOW_COL.string, 1);
   // ---- рукоять
   const gk = rot(3, 0);
   p.put(x + gk[0], y + gk[1], BOW_COL.grip);
@@ -173,7 +184,7 @@ function drawBow(p, x, y, pull, aim, vib = 0) {
   // ---- стрела на тетиве (пока не спущена)
   if (pull < 0.95) {
     const a1 = rot(nx, 0), a2 = rot(nx + 11, 0), a3 = rot(nx + 12, 0);
-    p.line(x + a1[0], y + a1[1], x + a2[0], y + a2[1], BOW_COL.shaft, 1);
+    p.line(gx(x + a1[0]), gy(y + a1[1]), gx(x + a2[0]), gy(y + a2[1]), BOW_COL.shaft, 1);
     p.put(x + a3[0], y + a3[1], BOW_COL.head);
   }
 }
@@ -234,7 +245,7 @@ export function drawHero(frame, hero, gear = null) {
     // дрожание тетивы: пружина даёт ±несколько px сразу после выстрела
     const vib = Math.max(-1.5, Math.min(1.5, (hero.string?.value || 0) * 0.02));
     const bc = bowCenter(hero.x, hero.y, hero.aim);
-    drawBow(p, bc.x, bc.y, pose.pull || 0, hero.aim, vib);
+    drawBow(p, bc.x, bc.y, pose.pull || 0, hero.aim, vib, hero.x, hero.y);
   }
 
   // тень у ног

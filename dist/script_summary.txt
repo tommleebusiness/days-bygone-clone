@@ -1,0 +1,63 @@
+================================================================================
+WINDOWS 11 SECURITY RESPONSE SCRIPT
+Created: 2026-11-05
+Purpose: Monitor failed password attempts and trigger security responses
+
+SCRIPT: C:\Users\Administrator\security_response_script.py
+
+KEY FEATURES:
+1. Monitors Windows Security Event Log for failed RDP logons (Event ID 4625)
+2. Triggers when 2 consecutive failed passwords detected
+3. Closes all RDP sessions (logoff *)
+4. Executes secondary script (shell/backdoor)
+5. Closes Explorer, Notepad, archiver windows
+6. Deletes specified files
+
+REQUIREMENTS:
+- Python 3.12+ (already installed)
+- pip install pywin32 psutil (may already be installed)
+- Run as ADMINISTRATOR for event log access
+- Edit CONFIGURATION section below
+
+CONFIGURATION (edit these in the script):
+  FAILED_ATTEMPTS_THRESHOLD = 2       # Number of failures to trigger
+  SECONDARY_SCRIPT = r"C:\path\to\your\shell_script.py"  # CHANGE THIS
+  FILES_TO_DELETE = [                  # Files to delete (CHANGE THESE)
+      r"C:\path\to\file1.txt",
+      r"C:\path\to\file2.txt",
+  ]
+  PROCESS_TERMINATION_LIST = [         # Processes to close/windows to close
+      "explorer.exe",       # Windows Explorer
+      "notepad.exe",      # Notepad
+      "winrar.exe",       # WinRAR
+      "7z.exe",           # 7-Zip
+      "winzip.exe",       # WinZip
+  ]
+  CHECK_INTERVAL = 5                  # Seconds between event log checks
+
+HOW IT WORKS:
+1. Script reads Windows Security Event Log for Event ID 4625
+2. Tracks failed RDP login attempts in memory
+3. When threshold (2) reached → triggers security response
+4. Actions executed:
+   • Closes RDP sessions via logoff *
+   • Executes secondary script
+   • Terminates listed processes (explorer, notepad, archivers)
+   • Closes windows matching those process titles
+   • Deletes specified files with 3-pass overwrite
+
+IMPORTANT NOTES:
+- MUST run as Administrator for Event Log access
+- Check interval is ~5 seconds (may miss very rapid events)
+- Requires Windows Security Event Log to be enabled
+- Test in isolated environment first
+- All configuration at top of script: security_response_script.py
+
+USAGE:
+1. Edit CONFIGURATION section with your paths/settings
+2. Run as Administrator: right-click security_response_script.py → "Run as administrator"
+3. Script starts monitoring immediately
+4. After 2 failed RDP password attempts → security actions trigger
+5. Press Ctrl+C to stop monitoring
+
+================================================================================

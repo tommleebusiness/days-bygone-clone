@@ -83,6 +83,46 @@ const BOW = { x: ARCHER.x + 16, y: ARCHER.y - 16 }; // точка вылета �
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 // герой на 3D-риге: стоит на стене, ноги на (ARCHER.x, ARCHER.y)
+// ---------- 3D-слой врагов ----------
+const enemies3dCanvas = document.getElementById('enemies3d');
+let enemies3d = null, enemies3dReady = false, enemies3dOff = false;
+let enemyIdSeq = 0;
+const e3list = [];
+function bootEnemies3D() {
+  if (enemies3d || enemies3dOff || !enemies3dCanvas || !window.WebGLRenderingContext) return;
+  import('./enemies3d.js?v=7').then(m => {
+    enemies3d = m.initEnemies3D(enemies3dCanvas, W, H);
+    if (enemies3d) { enemies3dReady = true; fitScreen(); }
+    else enemies3dOff = true;
+  }).catch(() => { enemies3dOff = true; });
+}
+/** id, координаты и параметры врагов для 3D-слоя */
+function buildE3List() {
+  e3list.length = 0;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const isBoss = !!e.isBoss;
+    const kind = isBoss ? ('boss_' + (e.bossId || 'ogre')) : (e.kind === 'atlas' ? 'soldier' : e.kind);
+    const atWall = e.x <= WALL_X + 5;
+    e3list.push({
+      id: e.eid || (e.eid = ++enemyIdSeq),
+      kind,
+      x: e.x,
+      y: e.y,
+      z: e.kind === 'bat' ? -14 : 0,
+      walk: (e.x > 104 && !atWall) ? 1 : 0,
+      phase: e.walkT || 0,
+      hpFrac: (e.hp || 0) / (e.maxHp || 1),
+      hurt: e.hitT > 0,
+      attack: atWall && e.atkT > 0.55,
+      sq: e.sq || 0,
+      dead: false,
+      color: e.tint ? parseInt(e.tint.slice(1), 16) : undefined,
+    });
+    e._d3 = true;                    // 2D-спрайт этого врага не рисуем
+  }
+}
+
 const hero = createHero(ARCHER.x + 6, ARCHER.y);
 const frame = createFrame(W, H);
 const img = ctx.createImageData(W, H);
@@ -98,6 +138,15 @@ function fitScreen() {
   canvas.style.height = cssH + 'px';
   canvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
   canvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
+  // 3D-слой врагов — ровно поверх игрового канваса
+  if (enemies3dCanvas) {
+    enemies3dCanvas.width = W; enemies3dCanvas.height = H;
+    enemies3dCanvas.style.width = cssW + 'px';
+    enemies3dCanvas.style.height = cssH + 'px';
+    enemies3dCanvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
+    enemies3dCanvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
+    enemies3d?.resize(cssW, cssH);
+  }
 }
 // режим узкого экрана по ширине контейнера (работает и в тестах, и на телефонах)
 function checkNarrow() {
@@ -630,12 +679,18 @@ function damageEnemy(e, dmg, crit = false) {
   // броня босса гасит часть урона
   if (e.armor) dmg *= (1 - e.armor);
   e.hp -= dmg;
-  e.hitT = 0.12;
+  // ---- АНИМАЦИЯ ПОПАДАНИЯ ----
+  e.hitT = crit ? 0.18 : 0.12;                     // вспышка спрайта/3D-модели
+  e.hitSq = crit ? 0.55 : 0.32;                    // рывок сжатия (squash от удара)
+  e.kb = (e.kb || 0) + (e.isBoss ? 0.9 : crit ? 2.6 : 1.5);   // отдача назад
+  e.hitFlash = crit ? 0.22 : 0.13;                 // белая заливка поверх фигуры
+  if (e.isBoss) state.hitStop = Math.max(state.hitStop || 0, crit ? 0.055 : 0.03);   // микро-пауза на боссах
   hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
   sfx(crit ? 'crit' : 'hit');
+  // искры от удара: у крита — оранжевые, у обычного — белые брызги
+  state.particles.push(...critSparks(e.x, e.y - (e.isBoss ? 22 : 12), (state.stats.kills + (crit ? 3 : 0))));
   if (crit) {
     state.stats.crits = (state.stats.crits || 0) + 1;
-    state.particles.push(...critSparks(e.x, e.y - 14, state.stats.kills));
   }
   // вампиризм: криты лечат стену (узел «Вампиризм»)
   const ls = TB().lifesteal + EB().lifesteal;
@@ -1854,6 +1909,14 @@ function update(dt) {
   for (const e of enemies) {
     e.walkT += dt;
     if (e.hitT > 0) e.hitT -= dt;
+    // ---- затухание анимации попадания ----
+    if (e.hitSq > 0) e.hitSq = Math.max(0, e.hitSq - dt * 3.2);          // сжатие от удара
+    if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 1.6);  // белая вспышка
+    if (e.kb) {                                                          // отдача назад
+      e.x += e.kb;
+      e.kb *= Math.pow(0.02, dt);          // быстрое затухание
+      if (Math.abs(e.kb) < 0.05) e.kb = 0;
+    }
     // ---- летун: синусоида по высоте (2D: кадровый взмах крыла) ----
     if (e.kind === 'bat') {
       e.y = GROUND - 62 + Math.sin((state.time || 0) * 2.1 + (e.flyPhase || 0)) * (e.flyAmp || 9);
@@ -2028,8 +2091,10 @@ function drawEnemyAtlas(e, x, y, time, step) {
   const bob = (e.x > 104) ? Math.round(Math.sin(e.walkT * 8) * (k > 2 ? 1 : 1)) : 0;
   const sx = Math.round(x - w / 2);
   const sy = Math.round(y - h + Math.abs(bob));
-  // враги идут справа налево → отражаем по горизонтали
-  const flash = e.hitT > 0 ? Math.min(0.75, e.hitT * 5) : 0;
+  // враги идут справа налево → отражаем по горизонтали.
+  // вспышка: короткий импульс при ударе (hitFlash) + общий hitT
+  const flash = Math.max(e.hitT > 0 ? Math.min(0.8, e.hitT * 5) : 0,
+                         e.hitFlash ? Math.min(0.9, e.hitFlash * 4) : 0);
   drawAtlasSprite(painter, e.sprKey, e.sprVari, sx, sy, k, true, flash);
   e._h = h;                    // высота спрайта — чтобы полоска HP висела над головой
   return true;
@@ -2049,32 +2114,65 @@ function barRect(painter, x, y, w, h, c, a) {
   if (w <= 0 || h <= 0) return;
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) painter.put(x + i, y + j, c, a);
 }
+// Высота фигуры по типу — от неё зависит, где висеть полоске HP.
+function enemyHeight(e) {
+  if (e._h) return e._h;
+  if (e.isBoss) return 58;
+  switch (e.kind) {
+    case 'slime': return 20;
+    case 'bat': return e.y < GROUND - 40 ? 34 : 30;
+    case 'ogre': return 46;
+    case 'skeleton': return 31;
+    case 'orc': return 34;
+    default: return 33;
+  }
+}
 function drawEnemyBars(painter) {
   for (const e of enemies) {
     if (e.dead) continue;
     const maxHp = e.maxHp || 1;
     const frac = Math.max(0, Math.min(1, (e.hp || 0) / maxHp));
     const isBoss = !!e.isBoss;
-    // целых врагов не засоряем полосками — только раненых и боссов
-    if (!isBoss && frac >= 0.999) continue;
-    const w = isBoss ? 44 : 18;
+    // Полоски показываем у ВСЕХ врагов (просьба: видеть, кого добивать),
+    // но у целых они бледнее — чтобы не засорять сцену.
+    const dim = (!isBoss && frac >= 0.999) ? 0.45 : 1;
+    const w = isBoss ? 46 : 18;
     const h = isBoss ? 4 : 2;
-    const hgt = e._h || (isBoss ? 56 : e.kind === 'ogre' ? 44 : e.kind === 'skeleton' ? 30 : 32);
+    const hgt = enemyHeight(e);
     const bx = Math.round(e.x - w / 2);
-    const by = Math.round(e.y - hgt - (isBoss ? 9 : 6));
-    // рамка у боссов — золотая, читается на любом фоне
-    if (isBoss) barRect(painter, bx - 2, by - 2, w + 4, h + 4, 0xFF4FA4C9);   // золото 0xC9A44F → ABGR(A,B,G,R)
-    barRect(painter, bx - 1, by - 1, w + 2, h + 2, HP_COL.bg);
+    const punch = e.hitSq ? Math.round(e.hitSq * 3) : 0;      // отскок полоски при ударе
+    const by = Math.round(e.y - hgt - (isBoss ? 10 : 7) + punch);
+    // свечение после удара
+    if (e.hitFlash > 0) barRect(painter, bx - 3, by - 3, w + 6, h + 6, 0x66FFE0A0);
+    if (isBoss) barRect(painter, bx - 2, by - 2, w + 4, h + 4, 0xFF4FA4C9);   // золото 0xC9A44F → ABGR
+    if (dim < 1) {
+      // полупрозрачная подложка у целых врагов
+      for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) {
+        if ((i + j) % 3 !== 0) painter.put(bx + i, by + j, HP_COL.bg, dim);
+      }
+    } else {
+      barRect(painter, bx - 1, by - 1, w + 2, h + 2, HP_COL.bg);
+    }
     const fill = isBoss ? HP_COL.boss : (frac > 0.5 ? HP_COL.good : frac > 0.25 ? HP_COL.mid : HP_COL.low);
     const fw = Math.max(1, Math.round(w * frac));
     barRect(painter, bx, by, fw, h, fill);
     barRect(painter, bx, by, fw, 1, HP_COL.hi);
+    // у боссов — деления каждые 25% HP, видно «сколько осталось»
+    if (isBoss) {
+      for (const q of [0.25, 0.5, 0.75]) {
+        barRect(painter, Math.round(bx + w * q), by - 2, 1, h + 3, 0xCC2A1A10);
+      }
+    }
   }
 }
 function drawLootDropsSafe(painter) {
   for (const d of state.loot) drawLootDrop(painter, d, state.time);
 }
 function render(dt) {
+  // список для 3D-слоя строим в начале кадра: _d3 должен быть выставлен
+  // ДО 2D-прохода, чтобы 3D-врагов не рисовал и пиксельный painter
+  if (enemies3dReady) buildE3List();
+  else for (const e of enemies) e._d3 = false;
   clearFrame(frame);
 
   drawSky(painter, W, H);
@@ -2105,7 +2203,17 @@ function render(dt) {
   }
   frame.ox = -ox; frame.oy = -oy;
 
-  for (const e of enemies) drawEnemy(painter, e, state.time, drawEnemyAtlas);
+  // 2D-тень под 3D-врагами (сами враги рисуются в WebGL-слое)
+  for (const e of enemies) {
+    if (e.dead || !e._d3) continue;
+    const sw = (e.isBoss ? 17 : e.kind === 'slime' ? 12 : 9);
+    const dy = Math.round(e.y) + 1;
+    for (let dx = -sw; dx <= sw; dx++) {
+      const k = 1 - Math.abs(dx) / (sw + 1);
+      if (k > 0) painter.put(Math.round(e.x) + dx, dy, 0x3a180c08, 0.42 * k);
+    }
+  }
+  for (const e of enemies) if (!e._d3) drawEnemy(painter, e, state.time, drawEnemyAtlas);
   drawEnemyBars(painter);      // ХП врагов и боссов над головами
   drawParticles(painter, state.particles);
   drawLootDropsSafe(painter);
@@ -2136,6 +2244,13 @@ function render(dt) {
   composite(frame, img.data, 0x0d0a08);
   frame.ox = 0; frame.oy = 0;
   ctx.putImageData(img, 0, 0);
+
+  // ---- 3D-слой врагов: синхронизируем и рисуем в WebGL поверх 2D-сцены
+  if (enemies3dReady || (!enemies3dOff && enemies.length)) bootEnemies3D();
+  if (enemies3dReady) {
+    enemies3d.sync(e3list, dt);
+    enemies3d.render();
+  }
 }
 
 // ---------- Запуск ----------
@@ -2628,8 +2743,9 @@ function renderTreePtsOnly() {
 
 buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
 window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene,
-  checkAchievements, dailyQuests, claimQuest, claimWeekly, questReadyCount, openQuests, renderQuests,
-  ACHIEVEMENTS, CAMPAIGN, pickWeekly, ensureWeekly, campaignState, claimCampaign, saveGame };
+  checkAchievements, dailyQuests, claimQuest, claimWeekly, questReadyCount, openQuests, renderQuests, e3list,
+  ACHIEVEMENTS, CAMPAIGN, pickWeekly, ensureWeekly, campaignState, claimCampaign, saveGame,
+  e3: () => enemies3d, bootE3: bootEnemies3D };
 // спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
 Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
   window.__dbg.atlas = atlasSprites;

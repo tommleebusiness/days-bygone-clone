@@ -24,6 +24,9 @@
   #menu3d { position:absolute; inset:0; width:100%; height:100%; display:block;
     z-index:2; pointer-events:none; background:#0a0710;
     transition:opacity .45s ease; opacity:1; }
+  /* 3D-враги: прозрачный WebGL-слой ровно над игровым канвасом */
+  #enemies3d { position:absolute; width:0; height:0; display:block; z-index:1;
+    pointer-events:none; image-rendering:auto; }
   /* --- средневековый HUD --- */
   #hud { position:absolute; top:8px; left:50%; transform:translateX(-50%);
     display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;
@@ -529,6 +532,7 @@ body.short #questModal{padding:4px}
   <div id="stage">
   <canvas id="game" width="640" height="360"></canvas>
   <canvas id="menu3d"></canvas>
+  <canvas id="enemies3d"></canvas>
   <div id="hud">
     <span class="res">🪙 <b id="gold">0</b></span>
     <span class="day">День <span id="day">1</span> <span id="weatherHud" style="margin-left:4px">☀️</span></span>
@@ -615,6 +619,6 @@ body.short #questModal{padding:4px}
   </div>
 </div>
 
-<script type="module" src="main.js?v=100"></script>
+<script type="module" src="main.js?v=115"></script>
 </body>
 </html>
