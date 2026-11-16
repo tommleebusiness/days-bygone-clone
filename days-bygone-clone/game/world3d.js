@@ -12,6 +12,7 @@
 // ============================================================
 
 import * as THREE from "./vendor/three/three.module.min.js";
+import { makeUnit } from "./enemies3d.js?v=8";
 
 const GROUND_Y = 296;            // линия земли в координатах игры
 const WALL_X = 100;              // правый край стены в игре
@@ -154,27 +155,46 @@ export function initWorld3D(canvas, camSpec) {
   // полоса травы на линии земли
   const grassStrip = add(land, BOX(W * 2.2, 3, 42), M(COL.grass, { rough: 1 }), W * 0.55, -GROUND_Y - 1, 2);
 
-  // комья земли и камни (детерминированно, без Math.random в кадре)
+  // комья земли/камни: инстансы (90 объектов = 1 draw call)
   let seed = 1337;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  for (let i = 0; i < 90; i++) {
-    const x = rnd() * W * 1.6 - W * 0.1;
-    const z = rnd() * 16 - 8;
-    const r = 1.2 + rnd() * 2.6;
-    const isRock = rnd() > 0.55;
-    const m = add(land, SPH(r, 6), M(isRock ? 0x8d8578 : 0x6a5238, { flat: true, rough: 1 }),
-      x, -GROUND_Y + 3 + r * 0.35, 20 + (z * 0.4));
-    m.scale.set(1, 0.55, 1);
-    m.castShadow = false;
-  }
-  // редкие пучки травы
-  for (let i = 0; i < 46; i++) {
-    const x = rnd() * W * 1.5;
-    const z = rnd() * 12 - 6;
-    for (let b = 0; b < 3; b++) {
-      add(land, CONE(1.1, 3.4 + rnd() * 2, 4), M(0x5f8a38, { rough: 1, flat: true }),
-        x + (rnd() - 0.5) * 4, -GROUND_Y - 1.6, 22 + (rnd() - 0.5) * 3);
+  {
+    const items = [];
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * W * 1.6 - W * 0.1;
+      const z = rnd() * 16 - 8;
+      const r = 1.2 + rnd() * 2.6;
+      items.push({ x, z: 20 + z * 0.4, r, dark: rnd() > 0.55 });
     }
+    const geo = SPH(1, 6);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+    const inst = new THREE.InstancedMesh(geo, mat, items.length);
+    const m4 = new THREE.Matrix4(), col = new THREE.Color();
+    items.forEach((it, i) => {
+      m4.makeScale(it.r, it.r * 0.55, it.r);
+      m4.setPosition(it.x, -GROUND_Y + 3 + it.r * 0.35, it.z);
+      inst.setMatrixAt(i, m4);
+      col.setHex(it.dark ? 0x6a5238 : 0x8d8578);
+      inst.setColorAt(i, col);
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    land.add(inst);
+  }
+  // трава: один instanced mesh, а не 138 отдельных конусов
+  {
+    const items = [];
+    for (let i = 0; i < 46; i++) {
+      const x = rnd() * W * 1.5;
+      for (let b = 0; b < 3; b++) items.push({ x: x + (rnd() - 0.5) * 4, z: 22 + (rnd() - 0.5) * 3, h: 3.4 + rnd() * 2 });
+    }
+    const geo = CONE(1.1, 1, 4);
+    const mat = M(0x5f8a38, { rough: 1, flat: true });
+    const inst = new THREE.InstancedMesh(geo, mat, items.length);
+    const m4 = new THREE.Matrix4();
+    items.forEach((it, i) => { m4.makeScale(1, it.h, 1); m4.setPosition(it.x, -GROUND_Y - 1.6 + it.h / 2, it.z); inst.setMatrixAt(i, m4); });
+    inst.instanceMatrix.needsUpdate = true;
+    land.add(inst);
   }
 
   // ================= ЗАМОК =================
@@ -190,18 +210,35 @@ export function initWorld3D(canvas, camSpec) {
   const wallTopY = GROUND_Y - 128;         // верх стены (в игре 168)
   const wallH = 128;
 
-  // Стена: каменная кладка блоками (объём)
-  const brickRows = Math.floor(wallH / 9);
-  for (let r = 0; r < brickRows; r++) {
-    const y = -GROUND_Y + 4 + r * 9;
-    const rowOff = (r % 2) * 5;
-    for (let x = -WALL_X + 5 + rowOff; x < WALL_X - 2; x += 10) {
-      const bw = Math.min(9, WALL_X - 2 - x);
-      if (bw < 2) continue;
-      const shade = rnd() > 0.82 ? COL.stoneD : COL.stone;
-      add(castle, BOX(bw, 8.4, 13), M(shade, { rough: 0.95, flat: true }),
-        x + bw / 2, y, 0);
+  // Стена: каменная кладка — ОДИН InstancedMesh вместо ~280 мешей.
+  // Это была главная причина рывков (сотни draw call на кадр).
+  {
+    const rows = Math.floor(wallH / 9);
+    const items = [];
+    for (let r = 0; r < rows; r++) {
+      const y = -GROUND_Y + 4 + r * 9;
+      const rowOff = (r % 2) * 5;
+      for (let x = -WALL_X + 5 + rowOff; x < WALL_X - 2; x += 10) {
+        const bw = Math.min(9, WALL_X - 2 - x);
+        if (bw < 2) continue;
+        items.push({ x: x + bw / 2, y, w: bw, dark: rnd() > 0.82 });
+      }
     }
+    const geo = new THREE.BoxGeometry(1, 8.4, 13);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true });
+    const inst = new THREE.InstancedMesh(geo, mat, items.length);
+    const m4 = new THREE.Matrix4(), col = new THREE.Color();
+    items.forEach((it, i) => {
+      m4.makeScale(it.w, 1, 1);
+      m4.setPosition(it.x, it.y, 0);
+      inst.setMatrixAt(i, m4);
+      col.setHex(it.dark ? COL.stoneD : COL.stone);
+      inst.setColorAt(i, col);
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    inst.castShadow = true;
+    castle.add(inst);
   }
   // тёмная подложка за кладкой, чтобы не было щелей
   add(castle, BOX(WALL_X + 4, wallH, 11), M(COL.stoneD, { rough: 1 }), 0, -GROUND_Y + wallH / 2, -0.6);
@@ -429,6 +466,54 @@ export function initWorld3D(canvas, camSpec) {
       x, -GROUND_Y + h / 2 - 2, -115);
   }
 
+  // ================= ДЕРЕВЬЯ (объёмные) =================
+  // Настоящие 3D-деревья: ствол-цилиндр + ярусы кроны-конусы.
+  // Три размера, ставятся за игровой плоскостью, но перед горами.
+  const trees = [];
+  {
+    const trunkM = M(0x4a3320, { rough: 1, flat: true });
+    const leafM = M(0x2e4a24, { rough: 0.95, flat: true });
+    const leafM2 = M(0x3d6030, { rough: 0.95, flat: true });
+    const spots = [];
+    for (let i = 0; i < 14; i++) spots.push({ x: 150 + rnd() * (W - 130), z: 90 + rnd() * 30, s: 0.85 + rnd() * 0.5 });
+    for (const t of spots) {
+      const g = new THREE.Group();
+      const H = 46 * t.s;
+      add(g, CYL(2.2 * t.s, 3.2 * t.s, H * 0.45, 6), trunkM, 0, H * 0.22, 0);
+      add(g, CONE(12 * t.s, H * 0.52, 7), leafM, 0, H * 0.5, 0);
+      add(g, CONE(9.5 * t.s, H * 0.44, 7), leafM2, 0, H * 0.72, 0);
+      add(g, CONE(6.5 * t.s, H * 0.36, 7), leafM, 0, H * 0.92, 0);
+      g.position.set(t.x, -GROUND_Y + 1, t.z);
+      g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      scene.add(g);
+      trees.push({ g, s: t.s, ph: rnd() * 6.28 });
+    }
+  }
+
+  // ================= ПОГОДА =================
+  // Дождь: вертикальные штрихи; снег: медленные точки. Один Points-объект
+  // с буфером переиспользуется — пересоздания нет, поэтому нет рывков.
+  const WX_MAX = 620;
+  const wxPos = new Float32Array(WX_MAX * 3);
+  for (let i = 0; i < WX_MAX; i++) {
+    wxPos[i * 3] = (rnd() * 2 - 1) * W * 0.9 + W * 0.5;
+    wxPos[i * 3 + 1] = -rnd() * H;
+    wxPos[i * 3 + 2] = 40 + rnd() * 60;
+  }
+  const wxGeo = new THREE.BufferGeometry();
+  wxGeo.setAttribute('position', new THREE.BufferAttribute(wxPos, 3));
+  const wxMat = new THREE.PointsMaterial({ color: 0xaac8ff, size: 3.2, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: false });
+  const weather3d = new THREE.Points(wxGeo, wxMat);
+  weather3d.frustumCulled = false;
+  scene.add(weather3d);
+  const wxState = { kind: 'clear', count: 0 };
+
+  // ================= 3D-ВРАГИ (в той же сцене) =================
+  // Раньше врагов рисовал отдельный канвас 640x360 — при растянутом мире
+  // (1262x539) это давало рассинхрон позиций и «неправильные спавны».
+  // Теперь враги живут в этой же сцене и камере: координаты совпадают 1:1.
+  const units = new Map();          // id → { group, kind, phase, punch, dead }
+
   // звёзды: плоское поле строго внутри кадра камеры (ортокамера не
   // «видит» объекты за пределами прямоугольника 0..W / 0..-H)
   const STARS = 260, pos = new Float32Array(STARS * 3);
@@ -512,11 +597,91 @@ export function initWorld3D(canvas, camSpec) {
       for (let i = 0; i < towers.length; i++) {
         towers[i].rotation.y = Math.sin(t * 2.1 + i) * 0.3;
       }
+      // ---- ВРАГИ: синхронизация 3D-моделей со списком игры
+      if (state.enemyList) {
+        const seen = new Set();
+        for (const e of state.enemyList) {
+          seen.add(e.id);
+          let u = units.get(e.id);
+          if (!u || u.kind !== e.kind) {
+            if (u) { scene.remove(u.group); }
+            const group = makeUnit(e.kind, e);
+            scene.add(group);
+            u = { group, kind: e.kind, phase: Math.random() * 6.28, punch: 0, dead: 0 };
+            units.set(e.id, u);
+          }
+          const g = u.group;
+          g.position.set(e.x, -e.y, e.z || 0);
+          const baseK = e.kind.indexOf('boss_') === 0 ? 1.95 : 2.2;
+          if (e.dead) u.dead += dt;
+          const dieK = e.dead ? Math.max(0.01, 1 - (u.dead || 0) * 2.4) : 1;
+          if (e.hitSq) u.punch = Math.max(u.punch, e.hitSq);
+          if (u.punch > 0) u.punch = Math.max(0, u.punch - dt * 2.4);
+          g.scale.setScalar(baseK * dieK * (1 + u.punch * 0.28) * (g.userData.scale || 1));
+          g.rotation.z = -u.punch * 0.35;
+          g.rotation.y = -Math.PI / 2 + (e.yaw == null ? 0.62 : e.yaw);
+          const U = g.userData;
+          const walk = e.walk == null ? 1 : e.walk;
+          const swing = Math.sin(t * 7.5 + u.phase) * walk;
+          if (U.legL) { U.legL.rotation.x = swing * 0.5; U.legR.rotation.x = -swing * 0.5; }
+          if (U.armL) U.armL.rotation.x = -swing * 0.35;
+          if (U.armR) U.armR.rotation.x = swing * 0.35;
+          if (!U.fly) g.position.y += Math.abs(Math.sin(t * 7.5 + u.phase)) * 0.9 * walk;
+          if (U.body && e.kind === 'slime') { const sq = e.sq || 0; U.body.scale.set(1 + sq, 1 - sq, 0.9); }
+          if (U.wingL) {
+            const f = e.kind === 'bat' ? Math.sin(t * 14 + u.phase) : Math.sin(t * 2.2 + u.phase);
+            U.wingL.rotation.z = 0.45 * f; U.wingR.rotation.z = -0.45 * f;
+          }
+          if (U.jaw) U.jaw.rotation.x = Math.sin(t * 3 + u.phase) * 0.15;
+          if (e.dead) g.rotation.z += dt * 1.5;
+        }
+        for (const [id, u] of units) {
+          if (!seen.has(id)) { scene.remove(u.group); units.delete(id); }
+        }
+        window.__e3debug = { units: units.size, rendered: (window.__e3debug ? window.__e3debug.rendered + 1 : 1) };
+      }
+
       stars.rotation.z = Math.sin(t * 0.02) * 0.01;
       halo.material.opacity = 0.08 + Math.sin(t * 0.9) * 0.02;
+
+      // --- деревья покачиваются (2 слоя частот: ствол + крона)
+      for (const tr of trees) {
+        tr.g.rotation.z = Math.sin(t * 0.8 + tr.ph) * 0.018 + Math.sin(t * 1.9 + tr.ph) * 0.008;
+      }
+
+      // --- ПОГОДА в 3D
+      const wkind = state.weather || 'clear';
+      const isRain = /rain|storm|дождь/i.test(wkind);
+      const isSnow = /snow|снег|frost/i.test(wkind);
+      const targetOp = isRain ? 0.75 : isSnow ? 0.9 : 0;
+      wxMat.opacity += (targetOp - wxMat.opacity) * Math.min(1, dt * 8);
+      weather3d.visible = wxMat.opacity > 0.02;
+      if (weather3d.visible) {
+        const arr = wxGeo.attributes.position.array;
+        const speed = isSnow ? 26 : 260;
+        const drift = isSnow ? 12 : 18;
+        for (let i = 0; i < WX_MAX; i++) {
+          const iy = i * 3 + 1;
+          arr[iy] += speed * dt;
+          arr[i * 3] += Math.sin(t * 1.5 + i) * drift * dt;
+          if (arr[iy] > 0) { arr[iy] = -H - Math.random() * 40; arr[i * 3] = (Math.random() * 2 - 1) * W * 0.9 + W * 0.5; }
+        }
+        wxGeo.attributes.position.needsUpdate = true;
+        wxMat.size = isSnow ? 4.2 : 2.6;
+        wxMat.color.setHex(isSnow ? 0xeaf4ff : 0x9ec4ff);
+      }
     },
+    /** Мир заполняет ВСЮ сцену: меняем aspect камеры, а не масштаб игры.
+     *  Игровая плоскость 640x360 остаётся по центру, но по бокам больше мира —
+     *  чёрных полос нет. */
     resize(w, h) {
-      renderer.setSize(w || canvas.clientWidth, h || canvas.clientHeight, false);
+      const cw = Math.max(1, w || canvas.clientWidth);
+      const ch = Math.max(1, h || canvas.clientHeight);
+      renderer.setSize(cw, ch, false);
+      // вертикальный FOV фиксирован, поэтому высота видимой области = H,
+      // а ширина = H * (cw/ch). Игровая плоскость центрируется по X.
+      cam.aspect = cw / ch;
+      cam.updateProjectionMatrix();
     },
     render() { renderer.render(scene, cam); },
     /** снимок кадра сразу после рендера (до очистки буфера браузером) */

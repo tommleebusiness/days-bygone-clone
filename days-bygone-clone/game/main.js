@@ -86,14 +86,16 @@ const ctx = canvas.getContext('2d');
 // герой на 3D-риге: стоит на стене, ноги на (ARCHER.x, ARCHER.y)
 // ---------- 3D-слой врагов ----------
 const enemies3dCanvas = document.getElementById('enemies3d');
-let enemies3d = null, enemies3dReady = false, enemies3dOff = false;
+// 3D-враги рисуются ВНУТРИ world3d (одна сцена/камера) — отдельный слой
+// больше не нужен: он давал рассинхрон позиций при растянутом мире.
+let enemies3d = null, enemies3dReady = false, enemies3dOff = true;
 
 // ---------- 3D-мир осады (замок, земля, горы, лучник) ----------
 const world3dCanvas = document.getElementById('world3d');
 let world3d = null, world3dReady = false, world3dOff = false;
 function bootWorld3D() {
   if (world3d || world3dOff || !world3dCanvas || !window.WebGLRenderingContext) return;
-  import('./world3d.js?v=11').then(m => {
+  import('./world3d.js?v=15').then(m => {
     world3d = m.initWorld3D(world3dCanvas, { w: W, h: H, groundY: GROUND, wallX: WALL_X });
     if (world3d) {
       world3dReady = true;
@@ -154,14 +156,16 @@ function fitScreen() {
   canvas.style.height = cssH + 'px';
   canvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
   canvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
-  // 3D-мир осады — тот же прямоугольник, что и игровой канвас
+  // 3D-мир осады заполняет ВСЮ сцену (без чёрных полос по бокам).
+  // Игровая плоскость остаётся по центру — мир просто продолжается дальше.
   if (world3dCanvas) {
-    world3dCanvas.width = W; world3dCanvas.height = H;
-    world3dCanvas.style.width = cssW + 'px';
-    world3dCanvas.style.height = cssH + 'px';
-    world3dCanvas.style.left = Math.floor((availW - cssW) / 2) + 'px';
-    world3dCanvas.style.top = Math.floor((availH - cssH) / 2) + 'px';
-    world3d?.resize(cssW, cssH);
+    world3dCanvas.width = Math.max(1, Math.round(availW));
+    world3dCanvas.height = Math.max(1, Math.round(availH));
+    world3dCanvas.style.width = availW + 'px';
+    world3dCanvas.style.height = availH + 'px';
+    world3dCanvas.style.left = '0px';
+    world3dCanvas.style.top = '0px';
+    world3d?.resize(availW, availH);
   }
   // 3D-слой врагов — ровно поверх игрового канваса
   if (enemies3dCanvas) {
@@ -2261,7 +2265,8 @@ function drawLootDropsSafe(painter) {
 function render(dt) {
   // список для 3D-слоя строим в начале кадра: _d3 должен быть выставлен
   // ДО 2D-прохода, чтобы 3D-врагов не рисовал и пиксельный painter
-  if (enemies3dReady) buildE3List();
+  // список 3D-врагов нужен, когда активен 3D-мир (враги рисуются в нём)
+  if (world3dReady || enemies3dReady) buildE3List();
   else for (const e of enemies) e._d3 = false;
   clearFrame(frame);
 
@@ -2276,6 +2281,8 @@ function render(dt) {
       heroX: hero.x, heroY: hero.y, aim: state.aim, pull: state.bowPull,
       recoil: state.recoilT, structs: state.structs, time: state.time,
       castleHp: state.castleHp, maxCastleHp: maxCastleHp(),
+      weather: (state.weather && state.weather.kind) || 'clear',
+      enemyList: e3list,
     }, dt);
     world3d.render();
   } else {
@@ -2352,11 +2359,7 @@ function render(dt) {
   drawEnemyBarsOverlay(ctx);   // HP-полоски поверх всех слоёв
 
   // ---- 3D-слой врагов: синхронизируем и рисуем в WebGL поверх 2D-сцены
-  if (enemies3dReady || (!enemies3dOff && enemies.length)) bootEnemies3D();
-  if (enemies3dReady) {
-    enemies3d.sync(e3list, dt);
-    enemies3d.render();
-  }
+  // отдельный слой врагов отключён — они рендерятся внутри world3d
 }
 
 // ---------- Запуск ----------
