@@ -682,7 +682,7 @@ function damageEnemy(e, dmg, crit = false) {
   // ---- АНИМАЦИЯ ПОПАДАНИЯ ----
   e.hitT = crit ? 0.18 : 0.12;                     // вспышка спрайта/3D-модели
   e.hitSq = crit ? 0.55 : 0.32;                    // рывок сжатия (squash от удара)
-  e.kb = (e.kb || 0) + (e.isBoss ? 0.9 : crit ? 2.6 : 1.5);   // отдача назад
+  e.kb = Math.min((e.kb || 0) + (e.isBoss ? 0.35 : crit ? 0.9 : 0.5), e.isBoss ? 1.2 : 2.2);   // отдача назад (ограничена)
   e.hitFlash = crit ? 0.22 : 0.13;                 // белая заливка поверх фигуры
   if (e.isBoss) state.hitStop = Math.max(state.hitStop || 0, crit ? 0.055 : 0.03);   // микро-пауза на боссах
   hitFx(e.x, e.y - (e.isBoss ? 26 : 12), crit, dmg);
@@ -1916,6 +1916,9 @@ function update(dt) {
       e.x += e.kb;
       e.kb *= Math.pow(0.02, dt);          // быстрое затухание
       if (Math.abs(e.kb) < 0.05) e.kb = 0;
+      // не даём выбить врага за правую границу арены (spawn-предел ~ W-40)
+      const maxX = W - 30;
+      if (e.x > maxX) { e.x = maxX; e.kb = 0; }
     }
     // ---- летун: синусоида по высоте (2D: кадровый взмах крыла) ----
     if (e.kind === 'bat') {
