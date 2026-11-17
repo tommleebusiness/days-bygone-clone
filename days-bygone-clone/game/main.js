@@ -13,7 +13,7 @@ import * as torchFx from "./fx/small-torch.js?v=4";
 
 import { BAL, fmt, bowCost, fireRateCost, multishotCost, critCost, pierceCost, bowDmg,
          enemyGap, waveCount }
-  from "./balance.js?v=3";
+  from "./balance.js?v=4";
 import { hex } from "./vendor/pixelfx/core/color.js?v=2";
 import { drawSky, drawGround, drawCastle, drawArcher, drawEnemy, drawSun, drawClouds, drawScenery } from "./sprites.js?v=14";
 import { STRUCT_DEFS, createStructures, updateStructures, drawStructures, drawProjectiles,
@@ -95,7 +95,7 @@ const world3dCanvas = document.getElementById('world3d');
 let world3d = null, world3dReady = false, world3dOff = false;
 function bootWorld3D() {
   if (world3d || world3dOff || !world3dCanvas || !window.WebGLRenderingContext) return;
-  import('./world3d.js?v=25').then(m => {
+  import('./world3d.js?v=26').then(m => {
     world3d = m.initWorld3D(world3dCanvas, { w: W, h: H, groundY: GROUND, wallX: WALL_X });
     if (world3d) {
       world3dReady = true;
@@ -399,12 +399,14 @@ const weaponRar = () => {
 // ---------- Крошечные стрелы (рисуются кодом, зависят от оружия) ----------
 // Вид снаряда зависит от оружия (kind) и его редкости (rar 0..5).
 // Чем выше редкость — тем богаче эффект: трейл, свечение, искры, аура.
+// Стрелы были 6-9 px и терялись в сцене. Увеличиваем длину и делаем
+// яркий светлый наконечник + обязательный след — выстрел видно всегда.
 const ARROW_STYLE = {
-  short: { wood: 0x8a6a3d, head: 0xe8e8f0, fletch: 0xd8d0c0, len: 7, trail: null },
-  long:  { wood: 0x7a5a32, head: 0xe8e8f0, fletch: 0xc94f3d, len: 9, trail: null },
-  bolt:  { wood: 0x57401f, head: 0xe8e8f0, fletch: 0xa8b0c0, len: 6, trail: 0x9aa8c0 },
-  heavy: { wood: 0x4a3418, head: 0xd8d8e8, fletch: 0x837c8c, len: 8, trail: 0x6a6058 },
-  arcane:{ wood: 0x6a3a9a, head: 0xd8a8ff, fletch: 0x9a4fe0, len: 7, trail: 0xc98af5 },
+  short: { wood: 0xd8b878, head: 0xfff8e8, fletch: 0xff8a70, len: 13, trail: 0xffe8b0 },
+  long:  { wood: 0xc8a060, head: 0xfff8e8, fletch: 0xff5a40, len: 16, trail: 0xffd890 },
+  bolt:  { wood: 0xa88850, head: 0xf0f8ff, fletch: 0xb0c8e0, len: 12, trail: 0x9ad0ff },
+  heavy: { wood: 0x9a7a40, head: 0xfff0d0, fletch: 0xc8b8a0, len: 14, trail: 0xffc860 },
+  arcane:{ wood: 0xa860e0, head: 0xf0d0ff, fletch: 0xd8a8ff, len: 13, trail: 0xd8a0ff },
 };
 
 function drawArrow(p, a) {
@@ -436,21 +438,25 @@ function drawArrow(p, a) {
     p.dot(Math.round(x - dx), Math.round(y - dy), rar >= 5 ? 0xffd166 : 0x9a4fe0, pulse * 0.7);
   }
 
-  // ---- древко
+  // ---- древко: ТОЛСТОЕ (2 px по нормали), чтобы стрела читалась в бою
   const tailX = Math.round(x - dx * L), tailY = Math.round(y - dy * L);
-  p.line(tailX, tailY, x, y, k === 'arcane' && rar >= 3 ? 0x8a4fe0 : st.wood);
-  // блик по древку у редких
-  if (rar >= 2) {
-    p.put(Math.round(x - dx * (L * 0.55)), Math.round(y - dy * (L * 0.55)), 0xfff0c0, 0.35);
+  const nxp = -dy, nyp = dx;                    // нормаль к направлению полёта
+  const woodCol = k === 'arcane' && rar >= 3 ? 0xb070ff : st.wood;
+  for (let t = 0; t <= L; t++) {
+    const cx = Math.round(x - dx * t), cy = Math.round(y - dy * t);
+    p.put(cx, cy, woodCol);
+    // второй пиксель поперёк — толщина
+    p.put(Math.round(cx + nxp), Math.round(cy + nyp), woodCol, 0.85);
   }
+  // блик по древку
+  p.put(Math.round(x - dx * (L * 0.55)), Math.round(y - dy * (L * 0.55)), 0xfff8d0, 0.6);
 
-  // ---- наконечник (с доп. свечением на легендарке)
-  const tipX = Math.round(x + dx * 2), tipY = Math.round(y + dy * 2);
-  if (rar >= 5) {
-    p.dot(tipX, tipY, 0xfff0a8, 0.55);
-    p.put(tipX - 1, tipY, 0xffd166, 0.7);
-  }
+  // ---- наконечник: яркий, с ореолом — точка вылета видна всегда
+  const tipX = Math.round(x + dx * 3), tipY = Math.round(y + dy * 3);
+  p.dot(tipX, tipY, 0xfff0a8, 0.5);             // мягкий ореол
   p.put(tipX, tipY, st.head);
+  p.put(tipX + Math.round(dx), tipY + Math.round(dy), st.head);
+  p.put(tipX + Math.round(nxp), tipY + Math.round(nyp), 0xffe8c0, 0.8);
 
   // ---- оперение
   const px = -dy, py = dx;
@@ -2172,6 +2178,61 @@ function enemyHeight(e) {
 // Полоски HP ПОВЕРХ всех слоёв: рисуем в 2D-контекст напрямую после
 // композитинга, в экранных координатах. Так они не зависят от frame.ox
 // (тряски) и гарантированно видны над WebGL-слоем врагов.
+// Стрелы рисуются НАПРЯМУЮ в 2D-контекст после композитинга.
+// Через painter→composite они терялись (прозрачный кадр в 3D-режиме),
+// поэтому рисуем обычным canvas API — гарантированно видно.
+function drawArrowsOverlay(ctx) {
+  for (const a of arrows) {
+    const x = a.x, y = a.y;
+    const sp = Math.hypot(a.vx, a.vy) || 1;
+    const dx = a.vx / sp, dy = a.vy / sp;
+    const L = 14;
+    const crit = !!a.crit;
+
+    // 1) ШЛЕЙФ: длинная тающая полоса позади стрелы
+    const trailLen = 34;
+    const grad = ctx.createLinearGradient(x - dx * trailLen, y - dy * trailLen, x, y);
+    grad.addColorStop(0, 'rgba(255,220,140,0)');
+    grad.addColorStop(0.55, crit ? 'rgba(255,190,90,0.35)' : 'rgba(255,230,170,0.28)');
+    grad.addColorStop(1, crit ? 'rgba(255,230,150,0.95)' : 'rgba(255,245,210,0.9)');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = crit ? 3.2 : 2.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - dx * trailLen, y - dy * trailLen);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+
+    // 2) ДРЕВКО: яркая линия
+    ctx.strokeStyle = crit ? '#ffd166' : '#f0dcae';
+    ctx.lineWidth = crit ? 2.6 : 2;
+    ctx.beginPath();
+    ctx.moveTo(x - dx * L, y - dy * L);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+
+    // 3) НАКОНЕЧНИК: светлая точка с ореолом
+    const tx = x + dx * 3, ty = y + dy * 3;
+    const halo = ctx.createRadialGradient(tx, ty, 0, tx, ty, 7);
+    halo.addColorStop(0, crit ? 'rgba(255,240,180,0.95)' : 'rgba(255,255,240,0.85)');
+    halo.addColorStop(1, 'rgba(255,220,140,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(tx, ty, 7, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#fffdf4';
+    ctx.beginPath(); ctx.arc(tx, ty, crit ? 2.2 : 1.7, 0, 6.2832); ctx.fill();
+
+    // 4) ОПЕРЕНИЕ: два пёрышка у хвоста
+    const bx = x - dx * L, by = y - dy * L;
+    ctx.strokeStyle = crit ? '#ff8a60' : '#e8a080';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(bx + dy * 3, by - dx * 3);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(bx - dy * 3, by + dx * 3);
+    ctx.stroke();
+  }
+}
+
 function drawEnemyBarsOverlay(ctx) {
   for (const e of enemies) {
     if (e.dead) continue;
@@ -2331,9 +2392,15 @@ function render(dt) {
   drawLootDropsSafe(painter);
   // трейл стрел: тающий след позади + золотое свечение крита
   for (const a of arrows) {
-    // лёгкий след
-    painter.line(Math.round(a.x - a.vx * 0.02), Math.round(a.y - a.vy * 0.02),
-      Math.round(a.x), Math.round(a.y), 0xf0e8d0, a.crit ? 0.4 : 0.18);
+    // длинный след по всей траектории полёта — стрелу видно на любом кадре
+    const tl = 26;
+    painter.line(Math.round(a.x - a.vx / BAL.arrowSpeed * tl), Math.round(a.y - a.vy / BAL.arrowSpeed * tl),
+      Math.round(a.x), Math.round(a.y), a.crit ? 0xffd070 : 0xffe8b0, a.crit ? 0.65 : 0.42);
+    // дополнительные точки свечения вдоль следа
+    for (let s = 4; s <= tl; s += 6) {
+      painter.dot(Math.round(a.x - a.vx / BAL.arrowSpeed * s),
+        Math.round(a.y - a.vy / BAL.arrowSpeed * s), 0xfff0c0, 0.35 * (1 - s / (tl + 6)));
+    }
     drawArrow(painter, a);
   }
   // вспышка спуска у кончика лука
@@ -2357,6 +2424,7 @@ function render(dt) {
   frame.ox = 0; frame.oy = 0;
   ctx.putImageData(img, 0, 0);
   drawEnemyBarsOverlay(ctx);   // HP-полоски поверх всех слоёв
+  drawArrowsOverlay(ctx);      // стрелы поверх всех слоёв (через painter терялись)
 
   // ---- 3D-слой врагов: синхронизируем и рисуем в WebGL поверх 2D-сцены
   // отдельный слой врагов отключён — они рендерятся внутри world3d

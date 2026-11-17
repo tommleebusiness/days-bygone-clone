@@ -371,12 +371,12 @@ export function initWorld3D(canvas, camSpec) {
   // Тёплый «лунный прожектор» на лучника: он стоит на тёмной стене, без
   // локального света фигура сливается с кладкой. Светильник летает вместе
   // с ним в sync() — лучник всегда освещён.
-  const archerSpot = new THREE.PointLight(0xffe0b0, 8, 110, 1.7);
+  const archerSpot = new THREE.PointLight(0xffe0b0, 4.5, 80, 1.8);
   scene.add(archerSpot);
   const archer = new THREE.Group();
   // лучник нарисован в «человеческих» единицах (торс 8x9.5) — при сцене 640x360
   // это крошка. Увеличиваем всю группу, чтобы фигура читалась силуэтом.
-  archer.scale.setScalar(2.6);
+  archer.scale.setScalar(1.75);   // уменьшен: был крупнее врагов и «давил» сцену
   archer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(archer);
   {
@@ -734,7 +734,7 @@ export function initWorld3D(canvas, camSpec) {
           }
           const g = u.group;
           g.position.set(e.x, -e.y, e.z || 0);
-          const baseK = e.kind.indexOf('boss_') === 0 ? 1.95 : 2.2;
+          const baseK = e.kind.indexOf('boss_') === 0 ? 1.45 : 1.65;   // уменьшены для читаемости сцены
           if (e.dead) u.dead += dt;
           const dieK = e.dead ? Math.max(0.01, 1 - (u.dead || 0) * 2.4) : 1;
           if (e.hitSq) u.punch = Math.max(u.punch, e.hitSq);

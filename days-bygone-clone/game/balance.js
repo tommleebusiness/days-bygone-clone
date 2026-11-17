@@ -55,7 +55,7 @@ export const BAL = {
   critCap: 0.5,
   critBaseCost: 60,
   critCostGrowth: 1.7,
-  arrowSpeed: 480,
+  arrowSpeed: 380,   // замедлены: были слишком быстрыми, полёт не читался
   pierceBaseCost: 400,        // пробитие: стрела летит сквозь врагов
   pierceCostGrowth: 6,
 
