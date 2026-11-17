@@ -95,7 +95,7 @@ const world3dCanvas = document.getElementById('world3d');
 let world3d = null, world3dReady = false, world3dOff = false;
 function bootWorld3D() {
   if (world3d || world3dOff || !world3dCanvas || !window.WebGLRenderingContext) return;
-  import('./world3d.js?v=21').then(m => {
+  import('./world3d.js?v=25').then(m => {
     world3d = m.initWorld3D(world3dCanvas, { w: W, h: H, groundY: GROUND, wallX: WALL_X });
     if (world3d) {
       world3dReady = true;

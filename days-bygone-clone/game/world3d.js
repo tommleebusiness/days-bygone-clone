@@ -56,7 +56,7 @@ function add(parent, geo, material, x, y, z, rx = 0, ry = 0, rz = 0) {
 
 // ---------- цвета мира ----------
 const COL = {
-  stone: 0x8d8578, stoneD: 0x655e52, stoneL: 0xa9a294,
+  stone: 0xa89f90, stoneD: 0x6f685c, stoneL: 0xc4bcaa,
   roof: 0xa33a2c, roofD: 0x7a2a1f,
   wood: 0x6a4a28, woodD: 0x402c16, iron: 0x4a4640,
   dirt: 0x4a3826, dirtD: 0x33241a, grass: 0x3f5c20,
@@ -83,7 +83,7 @@ export function initWorld3D(canvas, camSpec) {
   const scene = new THREE.Scene();
   // Плотный туман: без него все слои сливаются в одну плоскость.
   // 0.0022 даёт ~40% дымки на горах (z=-140) и почти нуль на игровой плоскости.
-  scene.fog = new THREE.FogExp2(0x2a2040, 0.0022);
+  scene.fog = new THREE.FogExp2(0x241a30, 0.00035);
 
   // Ортокамера ровно в пиксельных координатах игры
   // Длиннофокусная перспектива: почти ортографическая (искажение <4% ), но с
@@ -99,11 +99,11 @@ export function initWorld3D(canvas, camSpec) {
 
   // ================= СВЕТ =================
   // Меньше «плоской» заливки, больше направленного света → появляется объём
-  scene.add(new THREE.HemisphereLight(0x9fb4e8, 0x1a1626, 0.55));
-  scene.add(new THREE.AmbientLight(0x4a5878, 0.45));
+  scene.add(new THREE.HemisphereLight(0xb8c8f0, 0x241c30, 1.1));
+  scene.add(new THREE.AmbientLight(0x60708e, 0.85));
 
   // Тёплый ключевой свет от факелов замка (слева-снизу) — лепит объём
-  const sun = new THREE.DirectionalLight(0xffc07a, 3.6);
+  const sun = new THREE.DirectionalLight(0xffc880, 3.6);
   sun.position.set(-0.75, 0.45, 1);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -123,11 +123,11 @@ export function initWorld3D(canvas, camSpec) {
   scene.add(sunTgt);
   sun.target = sunTgt;
 
-  const rim = new THREE.DirectionalLight(0xa8c4ff, 2.6);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 2.6);
   rim.position.set(0.8, 0.55, -0.6);
   scene.add(rim);
   // заполняющий фронтальный — чтобы тёмные грани не проваливались в чёрное
-  const front = new THREE.DirectionalLight(0x8fa8d8, 0.85);
+  const front = new THREE.DirectionalLight(0x9cb4e0, 1.5);
   front.position.set(0.1, 0.1, 1);
   scene.add(front);
 
@@ -331,7 +331,7 @@ export function initWorld3D(canvas, camSpec) {
     add(castle, BOX(1.2, 16, 1.2), M(COL.woodD), tx, poleY, 0);
     // полотнище: крупное, ярко-красное, с золотой каймой и гербом-ромбом
     const flag = new THREE.Group();
-    const cloth = M(0xd23c2a, { rough: 0.65, emissive: 0x3a0e08, ei: 0.6 });
+    const cloth = M(0xe24a34, { rough: 0.6, emissive: 0x5a1608, ei: 0.85 });
     add(flag, BOX(22, 14, 1.2), cloth, 11, 0, 0);                       // полотно
     add(flag, BOX(22, 2.2, 1.4), M(COL.gold, { metal: 0.55, rough: 0.35 }), 11, 7.4, 0);   // верх. кайма
     add(flag, BOX(22, 2.2, 1.4), M(COL.gold, { metal: 0.55, rough: 0.35 }), 11, -7.4, 0);  // ниж. кайма
@@ -368,16 +368,21 @@ export function initWorld3D(canvas, camSpec) {
   }
 
   // ================= ЛУЧНИК =================
+  // Тёплый «лунный прожектор» на лучника: он стоит на тёмной стене, без
+  // локального света фигура сливается с кладкой. Светильник летает вместе
+  // с ним в sync() — лучник всегда освещён.
+  const archerSpot = new THREE.PointLight(0xffe0b0, 8, 110, 1.7);
+  scene.add(archerSpot);
   const archer = new THREE.Group();
   // лучник нарисован в «человеческих» единицах (торс 8x9.5) — при сцене 640x360
   // это крошка. Увеличиваем всю группу, чтобы фигура читалась силуэтом.
-  archer.scale.setScalar(2.1);
+  archer.scale.setScalar(2.6);
   archer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(archer);
   {
-    const skin = M(0xc9a07a, { rough: 0.8 });
-    const armor = M(0x8f96a0, { rough: 0.45, metal: 0.6 });
-    const leather = M(0x5a3f22, { rough: 0.85 });
+    const skin = M(0xf2c89a, { rough: 0.7, emissive: 0x3a2010, ei: 0.9 });
+    const armor = M(0xdce4f0, { rough: 0.3, metal: 0.7, emissive: 0x303a50, ei: 1.1 });
+    const leather = M(0x8a5c30, { rough: 0.7, emissive: 0x2a1808, ei: 0.8 });
     const legL = add(archer, BOX(2.6, 9, 2.6), armor, -2, 4.5, 0);
     const legR = add(archer, BOX(2.6, 9, 2.6), armor, 2, 4.5, 0);
     const torso = add(archer, BOX(8, 9.5, 4.6), armor, 0, 13.5, 0);
@@ -628,18 +633,6 @@ export function initWorld3D(canvas, camSpec) {
       W * 0.5, hazeY, -165 + i * 18);
   }
 
-  // ПЛОТНЫЙ ТУМАН У ГОРИЗОНТА: маскирует стык земли и гор, даёт глубину
-  {
-    const fogMat = new THREE.MeshBasicMaterial({
-      color: 0x8a7aa8, transparent: true, opacity: 0.22, fog: false, depthWrite: false,
-    });
-    add(far, G('fog1', () => new THREE.PlaneGeometry(W * 2.4, 70)), fogMat, W * 0.5, -GROUND_Y + 26, -140);
-    const fogMat2 = new THREE.MeshBasicMaterial({
-      color: 0xb09ac8, transparent: true, opacity: 0.12, fog: false, depthWrite: false,
-    });
-    add(far, G('fog2', () => new THREE.PlaneGeometry(W * 2.4, 46)), fogMat2, W * 0.5, -GROUND_Y + 12, -120);
-  }
-
   // тёплое свечение у горизонта — плоский диск (не полусфера, чтобы не
   // торчал «куполом» посреди горного хребта)
   const glow = add(scene, G('glowdisc', () => new THREE.CircleGeometry(130, 24)),
@@ -660,6 +653,7 @@ export function initWorld3D(canvas, camSpec) {
       const heroX = state.heroX == null ? 58 : state.heroX;
       const heroY = state.heroY == null ? wallTopY : state.heroY;
       archer.position.set(heroX, -heroY, 0);
+      archerSpot.position.set(heroX + 4, -heroY + 20, 55);   // подсветка сверху-спереди
       // корпус развёрнут вправо (в сторону врагов), лук смотрит вправо
       archer.rotation.y = 0;
       const U = archer.userData;
