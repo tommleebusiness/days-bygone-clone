@@ -81,7 +81,9 @@ export function initWorld3D(canvas, camSpec) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x241a30, 0.00055);
+  // Плотный туман: без него все слои сливаются в одну плоскость.
+  // 0.0022 даёт ~40% дымки на горах (z=-140) и почти нуль на игровой плоскости.
+  scene.fog = new THREE.FogExp2(0x2a2040, 0.0022);
 
   // Ортокамера ровно в пиксельных координатах игры
   // Длиннофокусная перспектива: почти ортографическая (искажение <4% ), но с
@@ -96,26 +98,43 @@ export function initWorld3D(canvas, camSpec) {
   cam.updateProjectionMatrix();
 
   // ================= СВЕТ =================
-  scene.add(new THREE.HemisphereLight(0xffd8a8, 0x3a3048, 1.5));
-  scene.add(new THREE.AmbientLight(0x8494b8, 1.0));
+  // Меньше «плоской» заливки, больше направленного света → появляется объём
+  scene.add(new THREE.HemisphereLight(0x9fb4e8, 0x1a1626, 0.55));
+  scene.add(new THREE.AmbientLight(0x4a5878, 0.45));
 
-  const sun = new THREE.DirectionalLight(0xffd0a0, 3.0);
-  sun.position.set(-0.55, 0.75, 1);
+  // Тёплый ключевой свет от факелов замка (слева-снизу) — лепит объём
+  const sun = new THREE.DirectionalLight(0xffc07a, 3.6);
+  sun.position.set(-0.75, 0.45, 1);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
-  sc.left = -W * 0.6; sc.right = W * 0.6; sc.top = H; sc.bottom = -H;
-  sc.near = -400; sc.far = 1200;
-  sun.shadow.bias = -0.0012;
+  // Ортокамера света должна накрывать ВСЮ игровую плоскость + деревья,
+  // иначе тени просто не попадают в буфер и сцена выглядит плоской.
+  sc.left = -W * 1.3; sc.right = W * 1.3;
+  sc.top = 120; sc.bottom = -H * 1.2;
+  sc.near = 1; sc.far = 1400;
+  sc.updateProjectionMatrix();
+  sun.shadow.bias = -0.0009;
+  sun.shadow.normalBias = 0.9;
+  sun.shadow.radius = 2.5;
   scene.add(sun);
   const sunTgt = new THREE.Object3D();
   sunTgt.position.set(W * 0.35, -GROUND_Y, 0);
   scene.add(sunTgt);
   sun.target = sunTgt;
 
-  const rim = new THREE.DirectionalLight(0x9ab4ff, 1.7);
-  rim.position.set(1, 0.4, -1);
+  const rim = new THREE.DirectionalLight(0xa8c4ff, 2.6);
+  rim.position.set(0.8, 0.55, -0.6);
   scene.add(rim);
+  // заполняющий фронтальный — чтобы тёмные грани не проваливались в чёрное
+  const front = new THREE.DirectionalLight(0x8fa8d8, 0.85);
+  front.position.set(0.1, 0.1, 1);
+  scene.add(front);
+
+  // детерминированный генератор: одинаковый мир на каждом запуске
+  // (объявлен ДО земли: она использует rnd для пятен травы)
+  let seed = 1337;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
   // ================= НЕБО-ПОДЛОЖКА =================
   // Вертикальный фон во весь кадр (ортокамера смотрит прямо, поэтому
@@ -138,26 +157,51 @@ export function initWorld3D(canvas, camSpec) {
   const land = new THREE.Group();
   scene.add(land);
 
-  // Поверхность земли: настоящая горизонтальная плоскость от дальнего края
-  // до переднего. При наклонной камере видна её поверхность — уходит вдаль.
-  add(land, G('groundtop', () => new THREE.PlaneGeometry(W * 2.6, 300, 1, 1)),
-    M(COL.dirt, { rough: 1 }), W * 0.5, -GROUND_Y - 1.5, -80,
-    -Math.PI / 2, 0, 0);
-  // вертикальный срез грунта спереди (торец плиты у нижней кромки кадра)
-  add(land, BOX(W * 2.6, 26, 2), M(COL.dirtD, { rough: 1 }),
-    W * 0.5, -GROUND_Y - 14, 68);
-  // тёмная полоса глубины внизу
-  add(land, BOX(W * 2.2, 16, 35), M(COL.dirtD, { rough: 1 }),
-    W * 0.5, -H - 4, 0.5);
-  // верхняя кромка ground: светлая «поверхность», чуть выступает вперёд
-  add(land, BOX(W * 2.2, 3, 40), M(0x5c4630, { rough: 1 }), W * 0.5, -GROUND_Y + 1, 1);
-
-  // полоса травы на линии земли
-  const grassStrip = add(land, BOX(W * 2.2, 3, 42), M(COL.grass, { rough: 1 }), W * 0.55, -GROUND_Y - 1, 2);
+  // ---------- ЗЕМЛЯ ----------
+  // Одна большая горизонтальная плита: верхняя поверхность на линии GROUND,
+  // уходит вдаль и навстречу камере. При наклонённой камере видно ЕЁ
+  // ПОВЕРХНОСТЬ (а не набор полос), поэтому сцена читается как поле боя.
+  const GROUND_D = 260;                                  // глубина поля
+  const groundTop = add(land, BOX(W * 2.4, 8, GROUND_D), M(0x4e6a30, { rough: 0.95 }),
+    W * 0.5, -GROUND_Y - 4, -GROUND_D / 2 + 58);
+  groundTop.receiveShadow = true;              // тени врагов и замка ложатся на поле
+  // передний торец плиты (грунт под травой) — виден у нижней кромки
+  add(land, BOX(W * 2.4, 22, 6), M(COL.dirtD, { rough: 1 }),
+    W * 0.5, -GROUND_Y - 15, 58);
+  // кромка травы на сломе (между полем и торцом) — тёмно-зелёная полоса
+  add(land, BOX(W * 2.4, 2.4, 3), M(0x385420, { rough: 1 }),
+    W * 0.5, -GROUND_Y - 1.4, 55);
+  // «земляная тень» под стеной замка — прижимает замок к земле
+  add(land, G('wallshadow', () => new THREE.PlaneGeometry(W * 1.2, 26)),
+    new THREE.MeshBasicMaterial({ color: 0x0a1410, transparent: true, opacity: 0.42, depthWrite: false, fog: false }),
+    W * 0.22, -GROUND_Y + 0.9, 18, -Math.PI / 2, 0, 0);
+  // «дорожка» у стены: утоптанная земля поперёк поля
+  add(land, BOX(W * 2.4, 1.2, 26), M(0x6a5238, { rough: 1 }),
+    W * 0.5, -GROUND_Y + 0.4, 26);
+  // пятна травы/земли для неоднородности (инстансы)
+  {
+    const spots = [];
+    for (let i = 0; i < 110; i++) {
+      spots.push({ x: rnd() * W * 2 - W * 0.5, z: 40 - rnd() * 200, w: 8 + rnd() * 30, dark: rnd() > 0.5 });
+    }
+    const geo = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, depthWrite: false });
+    const inst = new THREE.InstancedMesh(geo, mat, spots.length);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+    q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    const col = new THREE.Color();
+    spots.forEach((sp, i) => {
+      m4.compose(new THREE.Vector3(sp.x, -GROUND_Y + 0.6, sp.z), q, new THREE.Vector3(sp.w, sp.w * 1.8, 1));
+      inst.setMatrixAt(i, m4);
+      col.setHex(sp.dark ? 0x2a3a1c : 0x6a8a3c);
+      inst.setColorAt(i, col);
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    land.add(inst);
+  }
 
   // комья земли/камни: инстансы (90 объектов = 1 draw call)
-  let seed = 1337;
-  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   {
     const items = [];
     for (let i = 0; i < 90; i++) {
@@ -206,6 +250,7 @@ export function initWorld3D(canvas, camSpec) {
   const castle = new THREE.Group();
   castle.position.x = CASTLE_OX;
   scene.add(castle);
+  castle.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
   const wallTopY = GROUND_Y - 128;         // верх стены (в игре 168)
   const wallH = 128;
@@ -284,8 +329,22 @@ export function initWorld3D(canvas, camSpec) {
     // флаг: шест от вершины конуса вверх, флаг приклеен к шесту (не парит)
     const poleY = roofY + 12 + 8;
     add(castle, BOX(1.2, 16, 1.2), M(COL.woodD), tx, poleY, 0);
-    const flag = add(castle, BOX(11, 7, 0.8), M(COL.gold, { rough: 0.6, metal: 0.3 }),
-      tx + 6, poleY + 5, 0);
+    // полотнище: крупное, ярко-красное, с золотой каймой и гербом-ромбом
+    const flag = new THREE.Group();
+    const cloth = M(0xd23c2a, { rough: 0.65, emissive: 0x3a0e08, ei: 0.6 });
+    add(flag, BOX(22, 14, 1.2), cloth, 11, 0, 0);                       // полотно
+    add(flag, BOX(22, 2.2, 1.4), M(COL.gold, { metal: 0.55, rough: 0.35 }), 11, 7.4, 0);   // верх. кайма
+    add(flag, BOX(22, 2.2, 1.4), M(COL.gold, { metal: 0.55, rough: 0.35 }), 11, -7.4, 0);  // ниж. кайма
+    add(flag, BOX(2.2, 14, 1.4), M(COL.gold, { metal: 0.55, rough: 0.35 }), 1.1, 0, 0);    // кайма у древка
+    // герб: золотой ромб в центре
+    add(flag, BOX(6, 6, 1.6), M(COL.gold, { metal: 0.6, rough: 0.3 }), 12, 0, 0, 0, 0, Math.PI / 4);
+    // развевающийся кончик (треугольник)
+    add(flag, BOX(7, 3, 1.1), cloth, 25, -2.5, 0);
+    add(flag, BOX(4, 2, 1.1), cloth, 31, -5, 0);
+    // навершие древка
+    add(flag, SPH(2.6, 8), M(COL.gold, { metal: 0.7, rough: 0.25 }), 0, 11, 0);
+    flag.position.set(tx, poleY + 3, 0);
+    castle.add(flag);
     towers.push(flag);
   }
 
@@ -310,6 +369,10 @@ export function initWorld3D(canvas, camSpec) {
 
   // ================= ЛУЧНИК =================
   const archer = new THREE.Group();
+  // лучник нарисован в «человеческих» единицах (торс 8x9.5) — при сцене 640x360
+  // это крошка. Увеличиваем всю группу, чтобы фигура читалась силуэтом.
+  archer.scale.setScalar(2.1);
+  archer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(archer);
   {
     const skin = M(0xc9a07a, { rough: 0.8 });
@@ -323,13 +386,35 @@ export function initWorld3D(canvas, camSpec) {
     add(archer, CONE(3.2, 4), armor, 0, 25, 0);
     const armL = add(archer, BOX(2.2, 8, 2.2), armor, -4.8, 14, 0);
     const armR = add(archer, BOX(2.2, 8, 2.2), armor, 4.8, 14, 0);
-    // лук в дальней руке
+    // ---------- ЛУК (крупный и читаемый) ----------
+    // Дуга: тор-полуокружность радиусом 11 в плоскости XY. Стоит ТОРЦОМ
+    // к камере, поэтому раньше был почти невидим — поворачиваем на 90° по Y,
+    // чтобы дуга читалась профилем (как у лучника, стреляющего вправо).
     const bow = new THREE.Group();
-    bow.position.set(5.6, 14, 1.5);
-    bow.rotation.z = -0.25;
-    add(bow, G('bowlimb', () => new THREE.TorusGeometry(9, 0.9, 6, 14, Math.PI * 1.15)),
-      leather, 0, 0, 0, 0, 0, Math.PI * 0.42);
-    add(bow, BOX(0.35, 19, 0.35), M(0xe8e0cc), 0, 0, 0);
+    bow.position.set(7.0, 15, 4.5);            // вынесено ВПЕРЁД и вправо — видно поверх тела
+    // Дуга: тор в плоскости XY (平台上 к камере), дуга 180° открыта влево,
+    // кончики вверх/вниз. Так читается классический профиль лука.
+    const limb = add(bow, G('bowlimb3', () => new THREE.TorusGeometry(13, 1.7, 8, 24, Math.PI)),
+      M(0x7a5430, { rough: 0.65, emissive: 0x2a1608, ei: 0.8 }), 0, 0, 0);
+    limb.rotation.z = -Math.PI / 2;            // дуга открыта влево, спинка вправо
+    // кончики дуги: подсвеченные накладки
+    add(bow, SPH(2.1, 8), M(0xc9a44f, { metal: 0.5, rough: 0.4 }), 0, 13, 0);
+    add(bow, SPH(2.1, 8), M(0xc9a44f, { metal: 0.5, rough: 0.4 }), 0, -13, 0);
+    // тетива — две линии от кончиков к точке натяжения (обновляется в sync)
+    const stringMat = M(0xfff4d8, { rough: 0.3, emissive: 0x666050, ei: 0.9 });
+    const strA = add(bow, BOX(0.6, 1, 0.6), stringMat, 0, 0, 0);
+    const strB = add(bow, BOX(0.6, 1, 0.6), stringMat, 0, 0, 0);
+    // стрела: ДРЕВКО толще и светлее, наконечник с подсветкой — читается в бою
+    const shaftM = M(0xffe8b8, { rough: 0.4, emissive: 0x4a3a18, ei: 0.7 });
+    add(bow, CYL(0.9, 0.9, 34, 6), shaftM, 11, 0, 0, 0, 0, Math.PI / 2);
+    const tipM = M(0xfff0f8, { metal: 0.8, rough: 0.2, emissive: 0x666070, ei: 1.0 });
+    add(bow, CONE(2.4, 7, 6), tipM, 31, 0, 0, 0, 0, -Math.PI / 2);
+    // оперение: два пера по бокам
+    add(bow, BOX(5, 0.7, 3.4), M(0xd25040, { emissive: 0x30100c, ei: 0.6 }), -3, 0, 0);
+    add(bow, BOX(5, 3.4, 0.7), M(0xd25040, { emissive: 0x30100c, ei: 0.6 }), -3, 0, 0);
+    // рукоять
+    add(bow, BOX(3, 6, 3), M(0x4a3420, { rough: 0.8 }), 5.5, 0, 0);
+    bow.userData = { limb, strA, strB };
     archer.add(bow);
     // плащ
     const cape = add(archer, BOX(9, 15, 1.2), M(0x7a2f2f, { rough: 0.9 }), -1.5, 10, -2.4);
@@ -534,6 +619,27 @@ export function initWorld3D(canvas, camSpec) {
   add(scene, SPH(26, 20), new THREE.MeshBasicMaterial({ color: 0xfff3d4 }), moonPos.x, moonPos.y, moonPos.z);
   const halo = add(scene, SPH(38, 16), new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.10 }), moonPos.x, moonPos.y, moonPos.z);
 
+  // Слои воздушной перспективы: полупрозрачные полосы перед горами —
+  // отделяют хребты друг от друга (глубина без тумана на всю сцену)
+  for (let i = 0; i < 3; i++) {
+    const hazeY = -GROUND_Y + 6 + i * 14;
+    add(far, G('haze' + i, () => new THREE.PlaneGeometry(W * 2.2, 30)),
+      new THREE.MeshBasicMaterial({ color: 0x6a5a8a, transparent: true, opacity: 0.13 - i * 0.03, fog: false, depthWrite: false }),
+      W * 0.5, hazeY, -165 + i * 18);
+  }
+
+  // ПЛОТНЫЙ ТУМАН У ГОРИЗОНТА: маскирует стык земли и гор, даёт глубину
+  {
+    const fogMat = new THREE.MeshBasicMaterial({
+      color: 0x8a7aa8, transparent: true, opacity: 0.22, fog: false, depthWrite: false,
+    });
+    add(far, G('fog1', () => new THREE.PlaneGeometry(W * 2.4, 70)), fogMat, W * 0.5, -GROUND_Y + 26, -140);
+    const fogMat2 = new THREE.MeshBasicMaterial({
+      color: 0xb09ac8, transparent: true, opacity: 0.12, fog: false, depthWrite: false,
+    });
+    add(far, G('fog2', () => new THREE.PlaneGeometry(W * 2.4, 46)), fogMat2, W * 0.5, -GROUND_Y + 12, -120);
+  }
+
   // тёплое свечение у горизонта — плоский диск (не полусфера, чтобы не
   // торчал «куполом» посреди горного хребта)
   const glow = add(scene, G('glowdisc', () => new THREE.CircleGeometry(130, 24)),
@@ -550,18 +656,40 @@ export function initWorld3D(canvas, camSpec) {
     sync(state, dt) {
       t += dt;
 
-      // --- лучник: поза, натяжение, выстрел
-      const heroX = state.heroX ?? 58, heroY = state.heroY ?? wallTopY;
+      // --- лучник: поза, натяжение тетивы, выстрел
+      const heroX = state.heroX == null ? 58 : state.heroX;
+      const heroY = state.heroY == null ? wallTopY : state.heroY;
       archer.position.set(heroX, -heroY, 0);
-      archer.rotation.y = -0.55 + (state.aim ?? 0) * 0.25;
+      // корпус развёрнут вправо (в сторону врагов), лук смотрит вправо
+      archer.rotation.y = 0;
       const U = archer.userData;
-      const pull = state.pull ?? 0;
-      const breathe = Math.sin(t * 2.2) * 1.2;
-      archer.position.y += breathe;
-      if (U.armL) U.armL.rotation.x = -0.5 - pull * 0.35;
-      if (U.armR) U.armR.rotation.x = -0.4 - pull * 0.3;
-      if (U.bow) U.bow.rotation.z = -0.25 + (state.aim ?? 0) * 0.4;
-      if (U.cape) U.cape.rotation.x = 0.1 + Math.sin(t * 3.1) * 0.07 + (state.recoil ?? 0) * 0.5;
+      const pull = state.pull == null ? 0 : state.pull;
+      const aim = state.aim == null ? 0 : state.aim;
+      // «дыхание» + лёгкий наклон по прицелу
+      archer.position.y += Math.sin(t * 2.2) * 1.1;
+      archer.rotation.z = aim * 0.35;
+      if (U.armL) U.armL.rotation.x = -0.35 - pull * 0.5;
+      if (U.armR) U.armR.rotation.x = -0.25 - pull * 0.45;
+      // тетива: кончики дуги → точка натяжения (сдвигается назад при натяге)
+      const BW = U.bow ? U.bow.userData : null;
+      if (BW) {
+        const R = 13;
+        const tipX = 0, tipY = R;                     // кончики сверху/снизу
+        const nockX = -1.5 - pull * 6.5 + (state.recoil ? Math.sin(t * 40) * state.recoil * 2 : 0);
+        const segs = [[tipX, tipY, nockX, 0], [tipX, -tipY, nockX, 0]];
+        const nodes = [BW.strA, BW.strB];
+        for (let i = 0; i < 2; i++) {
+          const [ax, ay, bx, by] = segs[i];
+          const node = nodes[i];
+          if (!node) continue;
+          const dx = bx - ax, dy = by - ay;
+          const len = Math.hypot(dx, dy) || 1;
+          node.position.set((ax + bx) / 2, (ay + by) / 2, 0);
+          node.scale.set(0.5, len, 0.5);
+          node.rotation.z = Math.atan2(dy, dx) - Math.PI / 2;
+        }
+      }
+      if (U.cape) U.cape.rotation.x = 0.12 + Math.sin(t * 3.1) * 0.08 + (state.recoil || 0) * 0.6;
 
       // --- постройки: перестраиваем только при изменении уровней
       const sig = (state.structs || []).map(s => s.key + s.lvl).join(',');
