@@ -506,9 +506,13 @@ function coinFx(x, y) {
 }
 function hitFx(x, y, crit, dmg) {
   spawnFx(hitFlashFx, { x: Math.round(x), y: Math.round(y), seed: (Math.random() * 100) | 0 });
-  if (crit && dmg !== undefined) {
-    // компактный всплывающий текст с уроном вместо гигантского «КРИТ!»
-    spawnFx(floatTextFx, { x: Math.round(x), y: Math.round(y - 2), text: shortNum(dmg) + '!', crit: true });
+  if (dmg === undefined) return;
+  // Цифры урона на КАЖДОМ попадании (раньше только на критах — игрок не видел,
+  // что урон вообще идёт). Криты крупнее и с восклицательным знаком.
+  if (crit) {
+    addDmgPop(x, y - 2, shortNum(dmg) + '!', true);
+  } else if (dmg >= 1 && Math.random() < 0.55) {
+    addDmgPop(x, y - 1, shortNum(dmg), false);
   }
 }
 // компактные числа: 12.4K вместо 12431
@@ -845,7 +849,7 @@ function newEra() {
   state.loot = []; state.projectiles = [];
   state.castleHp = maxCastleHp();
   state.stats = { kills: 0, daysSurvived: 1, totalGold: 0 };
-  enemies.length = 0; arrows.length = 0; fxs.length = 0;
+  enemies.length = 0; arrows.length = 0; fxs.length = 0; dmgPops.length = 0;
   buildTree(); buildInventoryUI(); buildStructShop();
   state.waveTimer = 2.5;
   document.getElementById('eraScreen').style.display = 'none';
@@ -2101,6 +2105,7 @@ function update(dt) {
   }
 
   // эффекты
+  updateDmgPops(dt);
   for (let i = fxs.length - 1; i >= 0; i--) {
     fxs[i].update(dt);
     if (fxs[i].done()) fxs.splice(i, 1);
@@ -2181,6 +2186,49 @@ function enemyHeight(e) {
 // Стрелы рисуются НАПРЯМУЮ в 2D-контекст после композитинга.
 // Через painter→composite они терялись (прозрачный кадр в 3D-режиме),
 // поэтому рисуем обычным canvas API — гарантированно видно.
+// Всплывающие цифры урона. Раньше шли через painter→composite и в 3D-режиме
+// становились прозрачными. Рисуем их самим canvas API поверх слоёв.
+const dmgPops = [];
+function addDmgPop(x, y, text, crit) {
+  dmgPops.push({ x, y, text, crit, t: 0, life: crit ? 0.85 : 0.7, dx: (Math.random() - 0.5) * 10 });
+}
+function updateDmgPops(dt) {
+  for (let i = dmgPops.length - 1; i >= 0; i--) {
+    dmgPops[i].t += dt;
+    if (dmgPops[i].t >= dmgPops[i].life) dmgPops.splice(i, 1);
+  }
+}
+function drawDmgPopsOverlay(ctx) {
+  for (const d of dmgPops) {
+    const k = Math.min(1, d.t / d.life);
+    const alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+    const rise = k * (d.crit ? 22 : 15);
+    const px = d.x + d.dx * k, py = d.y - rise;
+    const size = d.crit ? 22 : 16;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = 'bold ' + size + 'px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // тёмная подложка — цифры читаются на любом фоне
+    const tw = ctx.measureText(d.text).width;
+    ctx.fillStyle = 'rgba(12,8,4,0.55)';
+    ctx.fillRect(px - tw / 2 - 3, py - size * 0.62, tw + 6, size * 1.2);
+    // толстая обводка + яркая заливка
+    ctx.lineWidth = d.crit ? 4.5 : 3.5;
+    ctx.strokeStyle = d.crit ? '#4a1208' : '#0e0a04';
+    ctx.strokeText(d.text, px, py);
+    ctx.fillStyle = d.crit ? '#ffd24a' : '#ffffff';
+    ctx.fillText(d.text, px, py);
+    if (d.crit) {
+      ctx.fillStyle = '#ff8a2d';
+      ctx.font = 'bold ' + Math.round(size * 0.55) + 'px monospace';
+      ctx.fillText('КРИТ', px, py - size * 0.85);
+    }
+    ctx.restore();
+  }
+}
+
 function drawArrowsOverlay(ctx) {
   for (const a of arrows) {
     const x = a.x, y = a.y;
@@ -2425,6 +2473,7 @@ function render(dt) {
   ctx.putImageData(img, 0, 0);
   drawEnemyBarsOverlay(ctx);   // HP-полоски поверх всех слоёв
   drawArrowsOverlay(ctx);      // стрелы поверх всех слоёв (через painter терялись)
+  drawDmgPopsOverlay(ctx);     // всплывающие цифры урона
 
   // ---- 3D-слой врагов: синхронизируем и рисуем в WebGL поверх 2D-сцены
   // отдельный слой врагов отключён — они рендерятся внутри world3d
@@ -2922,7 +2971,7 @@ buildShop(); buildStructShop(); buildInventoryUI(); buildTree(); updateHud();
 window.__dbg = { state, enemies, arrows, fxs, weather, spawnBoss, bossForDay, audioState, sfx, musicScene,
   checkAchievements, dailyQuests, claimQuest, claimWeekly, questReadyCount, openQuests, renderQuests, e3list,
   ACHIEVEMENTS, CAMPAIGN, pickWeekly, ensureWeekly, campaignState, claimCampaign, saveGame,
-  e3: () => enemies3d, bootE3: bootEnemies3D,
+  e3: () => enemies3d, bootE3: bootEnemies3D, dmgPops,
   w3: () => world3d, world3dReady: () => world3dReady, world3dOff: () => world3dOff, bootW3: bootWorld3D };
 // спрайты врагов и иконки предметов из Pixel Art Atlas (CC0) — грузим фоном, игра стартует сразу
 Promise.all([loadAtlas('assets/sprites/'), loadItemIcons('assets/items/')]).then(() => {
