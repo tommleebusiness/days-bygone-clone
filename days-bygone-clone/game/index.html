@@ -85,8 +85,9 @@
     background:rgba(60,40,10,.92); border:1px solid #c9a44f; color:#f4e6bd;
     padding:6px 18px; font-size:13px; letter-spacing:1px; border-radius:3px;
     opacity:0; transition:opacity .3s; pointer-events:none; text-shadow:1px 1px 0 #000; }
-  #castleHpWrap { position:absolute; top:8px; left:8px; z-index:7; width:178px;
-    background:rgba(20,14,8,.72); border:1px solid #6b5433; border-radius:4px; padding:3px 6px 4px; }
+  /* 178px не хватало: «100 / 100» обрезалось до «100 / 1…». Даём запас. */
+  #castleHpWrap { position:absolute; top:8px; left:8px; z-index:7; width:auto; min-width:150px; max-width:210px;
+    background:rgba(20,14,8,.72); border:1px solid #6b5433; border-radius:4px; padding:3px 7px 4px; }
   #castleHpWrap .label { font-size:11px; color:#c9b991; text-shadow:1px 1px 0 #000; margin-bottom:2px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   /* на узком экране оставляем только цифры ХП — слова не влезают в 88px */
@@ -628,6 +629,6 @@ body.short #questModal{padding:4px}
   </div>
 </div>
 
-<script type="module" src="main.js?v=153"></script>
+<script type="module" src="main.js?v=154"></script>
 </body>
 </html>
