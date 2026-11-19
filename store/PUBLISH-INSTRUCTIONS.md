@@ -9,8 +9,8 @@
 
 | Артефакт | Путь |
 |---|---|
-| AAB для Google Play | `dist/days-bygone-osada-v3.4.aab` |
-| APK для теста на телефоне | `dist/days-bygone-osada-v3.4.apk` |
+| AAB для Google Play | `dist/days-bygone-osada-v4.3.aab` |
+| APK для теста на телефоне | `dist/days-bygone-osada-v4.3.apk` |
 | Метаданные Google Play | `store/google/store-listing.md` |
 | Иконка 512×512 | `store/google/icon-512.png` |
 | Feature graphic 1024×500 | `store/google/feature-1024x500.png` |
@@ -28,7 +28,8 @@
 | **Инструкция сборки iOS** | **`store/apple/README-BUILD.md`** |
 | Политика конфиденциальности | `store/privacy-policy.md` |
 
-**Версия:** 3.4 (versionCode 18) — сюжетные главы, 3D-графика, HP-полоски
+**Версия:** 4.3 (versionCode 27) — 3D-мир и враги, стрелы и цифры урона поверх
+слоёв, полная панель ХП, главы и задания, донат и реклама
 
 ---
 
@@ -55,7 +56,7 @@
 
 ### Шаг 2. Загрузить AAB
 
-`Производство → Создать новую версию` → загрузить `days-bygone-osada-v3.1.aab`
+`Производство → Создать новую версию` → загрузить `dist/days-bygone-osada-v4.3.aab`
 
 При первом релизе включите **Play App Signing** (Google переподпишет приложение
 своим ключом — ваш keystore остаётся для локальных сборок).
@@ -194,9 +195,9 @@
 
 ## ТЕСТИРОВАНИЕ ПЕРЕД ПУБЛИКАЦИЕЙ
 
-1. Установить `dist/days-bygone-osada-v3.1.apk` на телефон:
+1. Установить `dist/days-bygone-osada-v4.3.apk` на телефон:
    ```
-   adb install -r dist/days-bygone-osada-v3.1.apk
+   adb install -r dist/days-bygone-osada-v4.3.apk
    ```
 2. Открыть игру → кнопка «💎 Донат» → проверить, что цены загрузились
 3. Купить тестовый товар (в тестовом режиме Google списания не будет,
@@ -216,8 +217,8 @@
 
 Перед следующей сборкой поднять в `android/app/build.gradle`:
 ```gradle
-versionCode 16      // ← увеличивать на 1 каждый раз
-versionName "3.2"   // ← новая версия
+versionCode 28      // ← увеличивать на 1 каждый раз (сейчас 27)
+versionName "4.4"   // ← новая версия (сейчас 4.3)
 ```
 
 Затем: `cd android && ./gradlew clean bundleRelease assembleRelease`
