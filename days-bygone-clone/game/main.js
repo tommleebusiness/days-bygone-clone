@@ -258,7 +258,12 @@ const state = {
 
 // ---------- СОХРАНЕНИЕ ПРОГРЕССА (localStorage) ----------
 const SAVE_KEY = 'dbs_save_v1';
+// Запись в сейв разрешена только после загрузки прогресса. Иначе
+// ensureDaily()/ensureWeekly() при инициализации страницы пишут СВЕЖЕЕ
+// состояние (эпоха 0, стартовое золото) поверх настоящего сейва.
+let saveReady = false;
 function saveGame() {
+  if (!saveReady) return;
   try {
     const d = {
       v: 1, era: state.era, gold: Math.round(state.gold), day: state.day,
@@ -855,6 +860,7 @@ function newEra() {
   document.getElementById('eraScreen').style.display = 'none';
   state.running = true;
   buildShop(); updateHud();
+  saveGame();                        // сейв новой эпохи сразу (не терять era+1 при закрытии)
   sfx('era');
   musicStart('calm');
   toast(`Эпоха ${state.era}: лук унаследовал силу ×${legacy.startDmgMult.toFixed(1)}`);
@@ -2487,6 +2493,7 @@ function beginSiege() {
   if (ss) ss.style.display = 'none';
   hideMenu3D();                      // гасим 3D-фон меню и освобождаем GPU
   const restored = loadGame();
+  saveReady = true;                  // теперь можно писать прогресс
   state.running = true;
   state.castleHp = maxCastleHp(); // полный HP на старте сессии
   buildShop(); buildTree(); buildInventoryUI(); buildStructShop(); updateHud();
